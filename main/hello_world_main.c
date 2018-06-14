@@ -20,6 +20,7 @@
 #define I2C_FREQ 100000
 #define I2C_RX_BUF 0
 #define I2C_TX_BUF 0
+#define I2C_CMD_TIMEOUT 10 / portTICK_PERIOD_MS
 
 void i2c_init() {
   int i2c_port = I2C_PORT;
@@ -34,33 +35,46 @@ void i2c_init() {
   i2c_driver_install(i2c_port, cfg.mode, I2C_RX_BUF, I2C_TX_BUF, 0);
 }
 
+esp_err_t i2c_write_reg8(uint8_t port, uint8_t addr, uint8_t reg, uint8_t data) {
+  i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+  i2c_master_start(cmd); // send the start bit
+  // initiate a write to addr and expect ACK
+  i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
+  i2c_master_write_byte(cmd, reg, true);                            // send the register address
+  i2c_master_write_byte(cmd, data, true);                           // send the actual data
+  i2c_master_stop(cmd);                                             // send the stop bit
+  esp_err_t err = i2c_master_cmd_begin(port, cmd, I2C_CMD_TIMEOUT); // perform the command
+  i2c_cmd_link_delete(cmd);
+
+  return err;
+}
+
+esp_err_t i2c_read_reg8(uint8_t port, uint8_t addr, uint8_t reg, uint8_t *data) {
+  i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+  i2c_master_start(cmd);
+  i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
+  i2c_master_write_byte(cmd, reg, true); // send the register address to read from
+  // read the chosen register
+  i2c_master_start(cmd); // we need to send another start bit because we're issuing a new command
+  i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_READ, true);
+  i2c_master_read_byte(cmd, data, I2C_MASTER_NACK);
+  i2c_master_stop(cmd);
+  esp_err_t err = i2c_master_cmd_begin(port, cmd, I2C_CMD_TIMEOUT);
+  i2c_cmd_link_delete(cmd);
+
+  return err;
+}
+
 void app_main() {
   printf("Hello world!\n");
 
   i2c_init();
 
-  esp_err_t err;
-  // printf("     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f\n");
-  // printf("00:         ");
-  for (int i = 3; i < 0x78; i++) {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (i << 1) | I2C_MASTER_WRITE, 1);
-    i2c_master_stop(cmd);
-
-    err = i2c_master_cmd_begin(I2C_PORT, cmd, 10 / portTICK_PERIOD_MS);
-    if (i % 16 == 0) {
-      // printf("\n%.2x:", i);
-    }
-    if (err == 0) {
-      printf("found dev @ 0x%.2x\n", i);
-      // printf(" %.2x", i);
-    } else {
-      printf("err @ 0x%.2x # %i\n", i, err);
-      // printf(" --");
-    }
-
-    i2c_cmd_link_delete(cmd);
-  }
-  printf("\n");
+  uint8_t data = -1, datab = -1;
+  esp_err_t err = i2c_read_reg8(I2C_PORT, 0x29, 0xc0, &data);
+  err |= i2c_read_reg8(I2C_PORT, 0x29, 0xc1, &datab);
+  if (err == 0)
+    printf("no err, data is 0x%.2x and 0x%.2x\n", data, datab);
+  else
+    printf("got err %u", err);
 }
