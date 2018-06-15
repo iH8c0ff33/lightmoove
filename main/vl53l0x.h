@@ -6,6 +6,13 @@
 
 #define DEFAULT_I2C_ADDR 0x29
 
+#define ERR_CHECK(x)                                                                               \
+  do {                                                                                             \
+    esp_err_t retval = (x);                                                                        \
+    if (retval != ESP_OK)                                                                          \
+      return retval;                                                                               \
+  } while (0)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -16,6 +23,7 @@ typedef enum {
   SYSTEM_SEQUENCE_CONFIG                 = 0x01,
   MSRC_CONFIG_CONTROL                    = 0x60,
   FINAL_RANGE_CONFIG_MIN_COUNT_RTN_LIMIT = 0x44,
+  VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV      = 0x89,
 } vl53l0x_reg_addr_t;
 
 typedef struct {
