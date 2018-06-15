@@ -51,8 +51,5 @@ void app_main() {
   vl53l0x_handle_t vl53l0x = vl53l0x_create(&config);
   esp_err_t        err     = vl53l0x_init(vl53l0x);
 
-  if (err == 0)
-    printf("no err\n");
-  else
-    printf("error occurred: %.2x\n", err);
+  printf("result was %s\n", esp_err_to_name(err));
 }
