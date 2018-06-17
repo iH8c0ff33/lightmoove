@@ -29,6 +29,25 @@ uint32_t _timeout_us_to_mclks(uint32_t timeout_period_us, uint8_t vcsel_period_p
   return (((timeout_period_us * 1000) + (macro_period_ns / 2)) / macro_period_ns);
 }
 
+uint16_t _encode_timeout(uint16_t timeout_mclks) {
+  // format: (lsb * 2^msb) + 1
+  uint32_t lsb = 0;
+  uint16_t msb = 0;
+
+  if (timeout_mclks > 0) {
+    lsb = timeout_mclks - 1;
+
+    while ((lsb & 0xffffff00) > 0) {
+      lsb >>= 1;
+      msb++;
+    }
+
+    return (msb << 8) | (lsb & 0xff);
+  } else {
+    return 0;
+  }
+}
+
 esp_err_t _vl53l0x_write(vl53l0x_handle_t vl53l0x, uint8_t reg, uint8_t *data, uint8_t length) {
   return i2c_write_reg(vl53l0x->port, vl53l0x->timeout, vl53l0x->addr, reg, data, length);
 }
@@ -229,14 +248,29 @@ esp_err_t _vl53l0x_get_sequence_steps_timeouts(vl53l0x_handle_t vl53l0x, sequenc
   return ESP_OK;
 }
 
+esp_err_t _vl53l0x_set_sequence_steps_timeouts(vl53l0x_handle_t           vl53l0x,
+                                               uint32_t                   final_range_timeout_us,
+                                               sequence_steps_t *         steps,
+                                               sequence_steps_timeouts_t *timeouts) {
+  uint16_t final_range_timeout_mclks =
+      _timeout_us_to_mclks(final_range_timeout_us, timeouts->final_range_vcsel_period_pckls);
+
+  if (steps->pre_range)
+    final_range_timeout_mclks += timeouts->pre_range_mclks;
+
+  ERR_CHECK(_vl53l0x_write16(vl53l0x, FINAL_RANGE_CONFIG_TIMEOUT_MACROP_HI,
+                             _encode_timeout(final_range_timeout_mclks)));
+  return ESP_OK;
+}
+
 esp_err_t _vl53l0x_get_meas_timing_budget(vl53l0x_handle_t vl53l0x, uint32_t *output) {
-  uint16_t const overhead_start       = 1910;
-  uint16_t const overhead_end         = 960;
-  uint16_t const overhead_msrc        = 660;
-  uint16_t const overhead_tcc         = 590;
-  uint16_t const overhead_dss         = 690;
-  uint16_t const overhead_pre_range   = 660;
-  uint16_t const overhead_final_range = 550;
+  const uint16_t overhead_start       = 1910;
+  const uint16_t overhead_end         = 960;
+  const uint16_t overhead_msrc        = 660;
+  const uint16_t overhead_tcc         = 590;
+  const uint16_t overhead_dss         = 690;
+  const uint16_t overhead_pre_range   = 660;
+  const uint16_t overhead_final_range = 550;
 
   uint32_t budget_us = overhead_start + overhead_end;
 
@@ -265,7 +299,61 @@ esp_err_t _vl53l0x_get_meas_timing_budget(vl53l0x_handle_t vl53l0x, uint32_t *ou
   return ESP_OK;
 }
 
-// esp_err_t _vl53l0x_set_sequence_steps
+esp_err_t _vl53l0x_set_meas_timing_budget(vl53l0x_handle_t vl53l0x, uint32_t budget_us) {
+  sequence_steps_t          steps;
+  sequence_steps_timeouts_t timeouts;
+
+  const uint16_t overhead_start       = 1320;
+  const uint16_t overhead_end         = 960;
+  const uint16_t overhead_msrc        = 660;
+  const uint16_t overhead_tcc         = 590;
+  const uint16_t overhead_dss         = 690;
+  const uint16_t overhead_pre_range   = 660;
+  const uint16_t overhead_final_range = 550;
+
+  const uint32_t min_timing_budget = 20000;
+
+  if (budget_us < min_timing_budget)
+    return ESP_ERR_INVALID_ARG;
+
+  uint32_t used_budget_us = overhead_start + overhead_end;
+
+  ERR_CHECK(_vl53l0x_get_sequence_steps(vl53l0x, &steps));
+  ERR_CHECK(_vl53l0x_get_sequence_steps_timeouts(vl53l0x, &steps, &timeouts));
+
+  if (steps.tcc)
+    used_budget_us += timeouts.msrc_dss_tcc_us + overhead_tcc;
+
+  if (steps.dss)
+    used_budget_us += 2 * (timeouts.msrc_dss_tcc_us + overhead_dss);
+
+  if (steps.msrc)
+    used_budget_us += timeouts.msrc_dss_tcc_us + overhead_msrc;
+
+  if (steps.pre_range)
+    used_budget_us += timeouts.pre_range_us + overhead_pre_range;
+
+  if (steps.final_range) {
+    used_budget_us += overhead_final_range;
+
+    if (used_budget_us > budget_us) // requested budget is too big
+      return ESP_ERR_NOT_SUPPORTED;
+
+    uint32_t final_range_timeout_us = budget_us - used_budget_us;
+    ERR_CHECK(
+        _vl53l0x_set_sequence_steps_timeouts(vl53l0x, final_range_timeout_us, &steps, &timeouts));
+  }
+
+  vl53l0x->meas_timing_budget = budget_us;
+
+  return ESP_OK;
+}
+
+esp_err_t _vl53l0x_set_sequence_steps(vl53l0x_handle_t vl53l0x) {
+  ERR_CHECK(_vl53l0x_write8(vl53l0x, SYSTEM_SEQUENCE_CONFIG, 0xe8));
+
+  return ESP_OK;
+}
 
 esp_err_t _vl53l0x_data_init(vl53l0x_handle_t vl53l0x) {
 #ifdef I2C_2V8
@@ -300,6 +388,8 @@ esp_err_t _vl53l0x_static_init(vl53l0x_handle_t vl53l0x) {
   uint32_t budget;
   ERR_CHECK(_vl53l0x_get_meas_timing_budget(vl53l0x, &budget));
   vl53l0x->meas_timing_budget = budget;
+  ERR_CHECK(_vl53l0x_set_sequence_steps(vl53l0x));
+  ERR_CHECK(_vl53l0x_set_meas_timing_budget(vl53l0x, vl53l0x->meas_timing_budget));
 
   return ESP_OK;
 }
@@ -307,10 +397,10 @@ esp_err_t _vl53l0x_static_init(vl53l0x_handle_t vl53l0x) {
 esp_err_t vl53l0x_init(vl53l0x_handle_t vl53l0x) {
   ERR_CHECK(_vl53l0x_data_init(vl53l0x));
   ERR_CHECK(_vl53l0x_static_init(vl53l0x));
+  // TODO: _vl53l0x_perform_calibration
 
   return ESP_OK;
 }
-
 
 const uint8_t DEFAULT_TUNING[] = {
     0xFF, 0x01, //
