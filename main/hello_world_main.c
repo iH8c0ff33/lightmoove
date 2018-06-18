@@ -24,7 +24,7 @@
 #define I2C_CMD_TIMEOUT 10 / portTICK_PERIOD_MS
 #define I2C_ADDR 0x29
 
-void i2c_init() {
+void i2c_init(void) {
   int i2c_port = I2C_PORT;
 
   i2c_config_t cfg;
@@ -44,12 +44,30 @@ void app_main() {
   i2c_init();
 
   vl53l0x_config_t config = {
-      .addr    = I2C_ADDR,
-      .port    = I2C_PORT,
-      .timeout = I2C_CMD_TIMEOUT,
+      .addr          = I2C_ADDR,
+      .port          = I2C_PORT,
+      .timeout       = I2C_CMD_TIMEOUT,
+      .io_timeout_us = 20 * 1000,
   };
   vl53l0x_handle_t vl53l0x = vl53l0x_create(&config);
   esp_err_t        err     = vl53l0x_init(vl53l0x);
 
-  printf("result was %s\n", esp_err_to_name(err));
+  printf("init result was %s\n", esp_err_to_name(err));
+  vl53l0x_set_signal_rate_limit(vl53l0x, 0.1);
+  vl53l0x_set_vcsel_pulse_period(vl53l0x, VCSEL_PERIOD_PRE_RANGE, 18);
+  vl53l0x_set_vcsel_pulse_period(vl53l0x, VCSEL_PERIOD_FINAL_RANGE, 14);
+  vl53l0x_set_meas_timing_budget(vl53l0x, 200000);
+  vTaskDelay(3000 / portTICK_PERIOD_MS);
+
+  while (true) {
+    uint16_t measurement;
+    err = vl53l0x_read_range_single_mm(vl53l0x, &measurement);
+    if (err != ESP_OK) {
+      printf("measure failed: %s\n", esp_err_to_name(err));
+      vTaskDelay(1500 / portTICK_PERIOD_MS);
+    } else {
+      printf("measured %umm\n", measurement);
+      vTaskDelay(500 / portTICK_PERIOD_MS);
+    }
+  }
 }

@@ -16,6 +16,7 @@
 #define DECODE_VCSEL_PERIOD(x) (((x) + 1) << 1)
 #define CALC_MACRO_PERIOD(period_pclks) ((((uint32_t)2304 * (period_pclks)*1655) + 500) / 1000)
 #define DECODE_TIMEOUT(x) ((uint16_t)(((x)&0x00ff) << (uint16_t)(((x)&0xff00) >> 8)) + 1)
+#define ENCODE_VCSEL_PERIOD(x) (((x) >> 1) - 1)
 
 #ifdef __cplusplus
 extern "C" {
@@ -108,9 +109,10 @@ typedef enum {
 } vl53l0x_reg_addr_t;
 
 typedef struct {
-  const char addr;
-  const char port;
-  const int  timeout;
+  const char     addr;
+  const char     port;
+  const int      timeout;
+  const uint16_t io_timeout_us;
 } vl53l0x_config_t;
 
 typedef struct {
@@ -131,7 +133,19 @@ typedef enum {
 
 vl53l0x_handle_t vl53l0x_create(vl53l0x_config_t *config);
 
+/**
+ Init VL53L0X sensor
+
+ @param vl53l0x vl53l0x handle
+ @return result
+ */
 esp_err_t vl53l0x_init(vl53l0x_handle_t vl53l0x);
+esp_err_t vl53l0x_set_signal_rate_limit(vl53l0x_handle_t vl53l0x, float limit);
+esp_err_t vl53l0x_set_meas_timing_budget(vl53l0x_handle_t vl53l0x, uint32_t budget_us);
+esp_err_t vl53l0x_set_vcsel_pulse_period(vl53l0x_handle_t vl53l0x, vcsel_period_t type,
+                                         uint8_t period_pclks);
+esp_err_t vl53l0x_read_range_continuous_mm(vl53l0x_handle_t vl53l0x, uint16_t *readout);
+esp_err_t vl53l0x_read_range_single_mm(vl53l0x_handle_t vl53l0x, uint16_t *readout);
 
 const uint8_t DEFAULT_TUNING[162];
 
