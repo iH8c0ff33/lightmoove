@@ -1,6 +1,7 @@
 #ifndef _VL53L0X_H
 #define _VL53L0X_H
 
+#include "esp_log.h"
 #include "esp_system.h"
 #include "i2c_proto.h"
 
@@ -21,6 +22,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// static const char *TAG = "vl53l0x";
 
 typedef struct vl53l0x *vl53l0x_handle_t;
 
@@ -144,8 +147,10 @@ esp_err_t vl53l0x_set_signal_rate_limit(vl53l0x_handle_t vl53l0x, float limit);
 esp_err_t vl53l0x_set_meas_timing_budget(vl53l0x_handle_t vl53l0x, uint32_t budget_us);
 esp_err_t vl53l0x_set_vcsel_pulse_period(vl53l0x_handle_t vl53l0x, vcsel_period_t type,
                                          uint8_t period_pclks);
-esp_err_t vl53l0x_read_range_continuous_mm(vl53l0x_handle_t vl53l0x, uint16_t *readout);
-esp_err_t vl53l0x_read_range_single_mm(vl53l0x_handle_t vl53l0x, uint16_t *readout);
+esp_err_t vl53l0x_read_range_mm(vl53l0x_handle_t vl53l0x, uint16_t *readout);
+esp_err_t vl53l0x_perform_range_single(vl53l0x_handle_t vl53l0x);
+esp_err_t vl53l0x_start_continuous_range(vl53l0x_handle_t vl53l0x, uint32_t period_ms);
+esp_err_t vl53l0x_stop_continuous_range(vl53l0x_handle_t vl53l0x);
 
 const uint8_t DEFAULT_TUNING[162];
 

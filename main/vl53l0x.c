@@ -1,5 +1,7 @@
 #include "vl53l0x.h"
 
+static const char *TAG = "vl53l0x";
+
 struct vl53l0x {
   char     addr;
   char     port;
@@ -64,6 +66,10 @@ esp_err_t _vl53l0x_write16(vl53l0x_handle_t vl53l0x, uint8_t reg, uint16_t data)
   return i2c_write_reg16(vl53l0x->port, vl53l0x->timeout, vl53l0x->addr, reg, data);
 }
 
+esp_err_t _vl53l0x_write32(vl53l0x_handle_t vl53l0x, uint8_t reg, uint32_t data) {
+  return i2c_write_reg32(vl53l0x->port, vl53l0x->timeout, vl53l0x->addr, reg, data);
+}
+
 esp_err_t _vl53l0x_read(vl53l0x_handle_t vl53l0x, uint8_t reg, uint8_t *data, uint8_t length) {
   return i2c_read_reg(vl53l0x->port, vl53l0x->timeout, vl53l0x->addr, reg, data, length);
 }
@@ -119,8 +125,8 @@ esp_err_t _vl53l0x_perform_single_ref_calibration(vl53l0x_handle_t vl53l0x, uint
     if (_vl53l0x_is_timeout_expired(vl53l0x))
       return ESP_ERR_TIMEOUT;
   } while ((data & 0x07) == 0);
-  printf("single_ref_calibration end after %lluus\n",
-         esp_timer_get_time() - vl53l0x->timeout_start);
+  ESP_LOGD(TAG, "single ref calibration complete in %lluus",
+           esp_timer_get_time() - vl53l0x->timeout_start);
 
   ERR_CHECK(_vl53l0x_write8(vl53l0x, SYSTEM_INTERRUPT_CLEAR, 0x01));
   ERR_CHECK(_vl53l0x_write8(vl53l0x, SYSRANGE_START, 0x00));
@@ -175,13 +181,13 @@ esp_err_t _vl53l0x_get_spad_info(vl53l0x_handle_t vl53l0x, uint8_t *count, bool 
   uint8_t data = 0;
   while (data == 0) // TODO: WARN: That loop could be fatal
     _vl53l0x_read8(vl53l0x, 0x83, &data);
-  printf("out of loop 0x83 is 0x%.2x\n", data);
+  ESP_LOGD(TAG, "0x83 is 0x%.2x", data);
   ERR_CHECK(_vl53l0x_write8(vl53l0x, 0x83, 0x01));
 
   ERR_CHECK(_vl53l0x_read8(vl53l0x, 0x92, &data));
   *count    = data & 0x7f;
   *aperture = (data & 0x80) >> 7;
-  printf("count is %u and type is%s aperture\n", *count, *aperture ? "" : " not");
+  ESP_LOGD(TAG, "SPADs: %u, aperture: [%s]", *count, *aperture ? "x" : " ");
 
   ERR_CHECK(_vl53l0x_write8(vl53l0x, 0x81, 0x00));
   ERR_CHECK(_vl53l0x_write8(vl53l0x, 0xff, 0x06));
@@ -249,12 +255,12 @@ esp_err_t _vl53l0x_get_sequence_steps(vl53l0x_handle_t vl53l0x, sequence_steps_t
   steps->pre_range   = (sequence_config >> 6) & 0x1;
   steps->final_range = (sequence_config >> 7) & 0x1;
 
-  printf("steps:\n\tmsrc:\t%s\n\tdss:\t%s\n\ttcc:\t%s\n\tpre:\t%s\n\tfinal:\t%s\n",
-         steps->msrc ? "[x]" : "[ ]",      //
-         steps->dss ? "[x]" : "[ ]",       //
-         steps->tcc ? "[x]" : "[ ]",       //
-         steps->pre_range ? "[x]" : "[ ]", //
-         steps->final_range ? "[x]" : "[ ]");
+  ESP_LOGV(TAG, "steps:\n\tmsrc:\t%s\n\tdss:\t%s\n\ttcc:\t%s\n\tpre:\t%s\n\tfinal:\t%s\n",
+           steps->msrc ? "[x]" : "[ ]",      //
+           steps->dss ? "[x]" : "[ ]",       //
+           steps->tcc ? "[x]" : "[ ]",       //
+           steps->pre_range ? "[x]" : "[ ]", //
+           steps->final_range ? "[x]" : "[ ]");
 
   return ESP_OK;
 }
@@ -299,23 +305,24 @@ esp_err_t _vl53l0x_get_sequence_steps_timeouts(vl53l0x_handle_t vl53l0x, sequenc
   timeouts->final_range_us =
       _timeout_mclks_to_us(timeouts->final_range_mckls, timeouts->final_range_vcsel_period_pckls);
 
-  printf("timeouts:\n"
-         "\tpre_range_vcsel_period_pclks:\t%u\n"
-         "\tfinal_range_vcsel_period_pckls:\t%u\n"
-         "\tmsrc_dss_tcc_mckls:\t%u\n"
-         "\tpre_range_mclks:\t%u\n"
-         "\tfinal_range_mckls:\t%u\n"
-         "\tmsrc_dss_tcc_us:\t%u\n"
-         "\tpre_range_us:\t%u\n"
-         "\tfinal_range_us:\t%u\n",
-         timeouts->pre_range_vcsel_period_pclks,   //
-         timeouts->final_range_vcsel_period_pckls, //
-         timeouts->msrc_dss_tcc_mckls,             //
-         timeouts->pre_range_mclks,                //
-         timeouts->final_range_mckls,              //
-         timeouts->msrc_dss_tcc_us,                //
-         timeouts->pre_range_us,                   //
-         timeouts->final_range_us);
+  ESP_LOGV(TAG,
+           "timeouts:\n"
+           "\tpre_range_vcsel_period_pclks:\t%u\n"
+           "\tfinal_range_vcsel_period_pckls:\t%u\n"
+           "\tmsrc_dss_tcc_mckls:\t%u\n"
+           "\tpre_range_mclks:\t%u\n"
+           "\tfinal_range_mckls:\t%u\n"
+           "\tmsrc_dss_tcc_us:\t%u\n"
+           "\tpre_range_us:\t%u\n"
+           "\tfinal_range_us:\t%u\n",
+           timeouts->pre_range_vcsel_period_pclks,   //
+           timeouts->final_range_vcsel_period_pckls, //
+           timeouts->msrc_dss_tcc_mckls,             //
+           timeouts->pre_range_mclks,                //
+           timeouts->final_range_mckls,              //
+           timeouts->msrc_dss_tcc_us,                //
+           timeouts->pre_range_us,                   //
+           timeouts->final_range_us);
 
   return ESP_OK;
 }
@@ -373,7 +380,7 @@ esp_err_t _vl53l0x_get_meas_timing_budget(vl53l0x_handle_t vl53l0x) {
 }
 
 esp_err_t vl53l0x_set_meas_timing_budget(vl53l0x_handle_t vl53l0x, uint32_t budget_us) {
-  printf("setting meas_timing_budget to %uus\n", budget_us);
+  ESP_LOGD(TAG, "set meas timing budget to %uus", budget_us);
 
   sequence_steps_t          steps;
   sequence_steps_timeouts_t timeouts;
@@ -419,7 +426,7 @@ esp_err_t vl53l0x_set_meas_timing_budget(vl53l0x_handle_t vl53l0x, uint32_t budg
         _vl53l0x_set_sequence_steps_timeout(vl53l0x, final_range_timeout_us, &steps, &timeouts));
   }
 
-  printf("used_budget: %uus\n", used_budget_us);
+  ESP_LOGD(TAG, "used budget is %uus", used_budget_us);
   vl53l0x->meas_timing_budget = budget_us;
 
   return ESP_OK;
@@ -519,6 +526,8 @@ esp_err_t vl53l0x_set_vcsel_pulse_period(vl53l0x_handle_t vl53l0x, vcsel_period_
 }
 
 esp_err_t _vl53l0x_data_init(vl53l0x_handle_t vl53l0x) {
+  ESP_LOGD(TAG, "start data init");
+
 #ifdef I2C_2V8
   ERR_CHECK(_vl53l0x_update8(vl53l0x, VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV, 0x01));
 #endif
@@ -538,6 +547,7 @@ esp_err_t _vl53l0x_data_init(vl53l0x_handle_t vl53l0x) {
 }
 
 esp_err_t _vl53l0x_static_init(vl53l0x_handle_t vl53l0x) {
+  ESP_LOGD(TAG, "start static init");
   uint8_t spad_count;
   bool    spad_aperture;
   ERR_CHECK(_vl53l0x_get_spad_info(vl53l0x, &spad_count, &spad_aperture));
@@ -562,6 +572,19 @@ esp_err_t _vl53l0x_perform_calibration(vl53l0x_handle_t vl53l0x) {
   return ESP_OK;
 }
 
+esp_err_t _vl53l0x_set_meas_period_ms(vl53l0x_handle_t vl53l0x, uint32_t period) {
+  ESP_LOGD(TAG, "set meas intvl to %ums", period);
+  uint16_t osc_calibrate_val;
+  ERR_CHECK(_vl53l0x_read16(vl53l0x, OSC_CALIBRATE_VAL, &osc_calibrate_val));
+
+  if (osc_calibrate_val != 0)
+    period *= osc_calibrate_val;
+
+  ERR_CHECK(_vl53l0x_write32(vl53l0x, SYSTEM_INTERMEASUREMENT_PERIOD, period));
+
+  return ESP_OK;
+}
+
 esp_err_t vl53l0x_init(vl53l0x_handle_t vl53l0x) {
   ERR_CHECK(_vl53l0x_data_init(vl53l0x));
   ERR_CHECK(_vl53l0x_static_init(vl53l0x));
@@ -570,7 +593,8 @@ esp_err_t vl53l0x_init(vl53l0x_handle_t vl53l0x) {
   return ESP_OK;
 }
 
-esp_err_t vl53l0x_read_range_continuous_mm(vl53l0x_handle_t vl53l0x, uint16_t *readout) {
+esp_err_t vl53l0x_read_range_mm(vl53l0x_handle_t vl53l0x, uint16_t *readout) {
+  ESP_LOGD(TAG, "start readout");
   _vl53l0x_start_timeout(vl53l0x);
   uint8_t data;
   do {
@@ -578,25 +602,56 @@ esp_err_t vl53l0x_read_range_continuous_mm(vl53l0x_handle_t vl53l0x, uint16_t *r
     // if (_vl53l0x_is_timeout_expired(vl53l0x))
     // return ESP_ERR_TIMEOUT;
   } while ((data & 0x07) == 0);
-  printf("readout performed in %lluus\n", esp_timer_get_time() - vl53l0x->timeout_start);
+  ESP_LOGD(TAG, "readout done in %lluus", esp_timer_get_time() - vl53l0x->timeout_start);
 
   ERR_CHECK(_vl53l0x_read16(vl53l0x, RESULT_RANGE_STATUS + 10, readout));
 
   uint8_t status;
   ERR_CHECK(_vl53l0x_read8(vl53l0x, RESULT_RANGE_STATUS, &status));
   if ((status & 0x78) >> 3 != 11) {
-    printf("error status is %u\n", (status & 0x78) >> 3);
+    ESP_LOGE(TAG, "readout has error #%u", (status & 0x78) >> 3);
+
     return ESP_FAIL;
   }
-
-  printf("extracted measurement %umm\n", *readout);
 
   ERR_CHECK(_vl53l0x_write8(vl53l0x, SYSTEM_INTERRUPT_CLEAR, 0x01));
 
   return ESP_OK;
 }
 
-esp_err_t vl53l0x_read_range_single_mm(vl53l0x_handle_t vl53l0x, uint16_t *readout) {
+esp_err_t vl53l0x_start_continuous_range(vl53l0x_handle_t vl53l0x, uint32_t period_ms) {
+  ESP_LOGD(TAG, "start continuous range");
+
+  ERR_CHECK(_vl53l0x_start_proc(vl53l0x));
+  ERR_CHECK(_vl53l0x_write8(vl53l0x, 0x91, vl53l0x->stop_var));
+  ERR_CHECK(_vl53l0x_stop_proc(vl53l0x));
+
+  if (period_ms != 0) {
+    ERR_CHECK(_vl53l0x_set_meas_period_ms(vl53l0x, period_ms));
+    ERR_CHECK(_vl53l0x_write8(vl53l0x, SYSRANGE_START, 0x04));
+  } else {
+    ERR_CHECK(_vl53l0x_write8(vl53l0x, SYSRANGE_START, 0x02));
+  }
+
+  return ESP_OK;
+}
+
+esp_err_t vl53l0x_stop_continuous_range(vl53l0x_handle_t vl53l0x) {
+  ESP_LOGD(TAG, "stop continuous range");
+  ERR_CHECK(_vl53l0x_write8(vl53l0x, SYSRANGE_START, 0x01));
+
+  ERR_CHECK(_vl53l0x_write8(vl53l0x, 0xff, 0x01));
+  ERR_CHECK(_vl53l0x_write8(vl53l0x, 0x00, 0x00));
+  ERR_CHECK(_vl53l0x_write8(vl53l0x, 0x91, 0x00));
+  ERR_CHECK(_vl53l0x_write8(vl53l0x, 0x00, 0x01));
+  ERR_CHECK(_vl53l0x_write8(vl53l0x, 0xff, 0x00));
+
+  return ESP_OK;
+}
+
+esp_err_t vl53l0x_perform_range_single(vl53l0x_handle_t vl53l0x) {
+  ESP_LOGD(TAG, "performing single range");
+
   ERR_CHECK(_vl53l0x_start_proc(vl53l0x));
   ERR_CHECK(_vl53l0x_write8(vl53l0x, 0x91, vl53l0x->stop_var));
   ERR_CHECK(_vl53l0x_stop_proc(vl53l0x));
@@ -611,8 +666,6 @@ esp_err_t vl53l0x_read_range_single_mm(vl53l0x_handle_t vl53l0x, uint16_t *reado
       return ESP_ERR_TIMEOUT;
   } while (data & 0x01);
   printf("measure started in %lluus\n", esp_timer_get_time() - vl53l0x->timeout_start);
-
-  ERR_CHECK(vl53l0x_read_range_continuous_mm(vl53l0x, readout));
 
   return ESP_OK;
 }

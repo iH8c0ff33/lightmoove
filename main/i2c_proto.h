@@ -8,6 +8,7 @@ esp_err_t i2c_write_reg(uint8_t port, uint32_t timeout, uint8_t addr, uint8_t re
                         uint8_t length);
 esp_err_t i2c_write_reg8(uint8_t port, uint32_t timeout, uint8_t addr, uint8_t reg, uint8_t data);
 esp_err_t i2c_write_reg16(uint8_t port, uint32_t timeout, uint8_t addr, uint8_t reg, uint16_t data);
+esp_err_t i2c_write_reg32(uint8_t port, uint32_t timeout, uint8_t addr, uint8_t reg, uint32_t data);
 esp_err_t i2c_read_reg(uint8_t port, uint32_t timeout, uint8_t addr, uint8_t reg, uint8_t *data,
                        uint8_t length);
 esp_err_t i2c_read_reg8(uint8_t port, uint32_t timeout, uint8_t addr, uint8_t reg, uint8_t *data);
