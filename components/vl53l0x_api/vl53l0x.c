@@ -211,3 +211,22 @@ vl53l0x_err_t vl53l0x_get_tuning_settings(vl53l0x_handle_t dev, uint8_t** settin
   *settings     = dev->data.tuning_settings;
   *use_internal = dev->data.use_internal_tuning_settings;
 }
+
+vl53l0x_err_t vl53l0x_static_init(vl53l0x_handle_t dev) {
+  return VL53L0X_ERR_NOT_IMPLEMENTED;  // TODO: Implement
+
+  ERR_CHECK(vl53l0x_get_info_from_dev(dev, 1));
+
+  // set the ref spad from NVM
+  uint32_t count    = dev->data.dev_spec_params.ref_spad_count;
+  bool     aperture = dev->data.dev_spec_params.ref_spad_aperture;
+
+  // check NVM values
+  if ((aperture && count > 32) || (!aperture && count > 12))
+    ERR_CHECK(vl53l0x_perform_ref_spad_management(dev, &count, &aperture));
+  else
+    ERR_CHECK(_vl53l0x_set_ref_spads(dev, count, aperture));
+
+  // initialize tuning settings buffer
+  uint8_t* tuning_settings;
+}
