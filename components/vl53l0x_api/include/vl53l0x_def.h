@@ -154,7 +154,7 @@ typedef struct {
   uint8_t  revision;
   char     product_id[VL53L0X_MAX_STRING_LENGTH];
   uint8_t  ref_spad_count;
-  uint8_t  ref_spad_type;
+  bool     ref_spad_aperture;
   bool     ref_spad_initialised;
   uint32_t part_uid_lo;
   uint32_t part_uid_up;
