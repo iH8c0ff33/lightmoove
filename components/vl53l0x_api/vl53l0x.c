@@ -197,3 +197,17 @@ vl53l0x_err_t vl53l0x_data_init(vl53l0x_handle_t dev) {
 
   return VL53L0X_OK;
 }
+
+vl53l0x_err_t vl53l0x_set_tuning_settings(vl53l0x_handle_t dev, uint8_t* settings,
+                                          bool use_internal) {
+  dev->data.use_internal_tuning_settings = use_internal;
+  if (!use_internal) dev->data.tuning_settings = settings;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_tuning_settings(vl53l0x_handle_t dev, uint8_t** settings,
+                                          bool* use_internal) {
+  *settings     = dev->data.tuning_settings;
+  *use_internal = dev->data.use_internal_tuning_settings;
+}
