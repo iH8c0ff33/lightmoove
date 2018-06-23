@@ -19,7 +19,7 @@
 #define I2C_FREQ 100000
 #define I2C_RX_BUF 0
 #define I2C_TX_BUF 0
-#define I2C_CMD_TIMEOUT 10 / portTICK_PERIOD_MS
+#define I2C_CMD_TIMEOUT (10 / portTICK_PERIOD_MS)
 #define I2C_ADDR 0x29
 #define GPIO_INPUT_0 27
 #define GPIO_INPUT_1 0
