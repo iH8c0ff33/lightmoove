@@ -1,4 +1,6 @@
-BasedOnStyle: LLVM
+---
+BasedOnStyle: Google
 ColumnLimit: 100
 AlignConsecutiveAssignments: true
 AlignConsecutiveDeclarations: true
+...
