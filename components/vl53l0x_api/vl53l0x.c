@@ -533,7 +533,7 @@ vl53l0x_err_t vl53l0x_set_seq_step_timeout(vl53l0x_handle_t dev, vl53l0x_seq_ste
   uint32_t timeout_us = ((timeout_ms * 1000) + 0x8000) >> 16;
 
   // read curret value (in order to revert in case of an error)
-  uint32_t old_timeout_us;
+  fp1616_t old_timeout_us;
   ERR_CHECK(_vl53l0x_get_seq_step_timeout(dev, step, &old_timeout_us));
   // now set the new value
   ERR_CHECK(_vl53l0x_set_seq_step_timeout(dev, step, timeout_us));
@@ -548,3 +548,136 @@ vl53l0x_err_t vl53l0x_set_seq_step_timeout(vl53l0x_handle_t dev, vl53l0x_seq_ste
 
   return VL53L0X_OK;
 }
+
+vl53l0x_err_t vl53l0x_get_seq_step_timeout(vl53l0x_handle_t dev, vl53l0x_seq_step_t step,
+                                           fp1616_t* timeout_ms) {
+  uint32_t timeout_us;
+  ERR_CHECK(_vl53l0x_get_seq_step_timeout(dev, step, &timeout_us));
+  uint32_t whole_part    = 0;
+  uint32_t fraction_part = 0;
+
+  whole_part    = timeout_us / 1000;
+  fraction_part = timeout_us - (whole_part * 1000);
+  *timeout_ms   = (whole_part << 16) + (((fraction_part * 0xffff) + 500) / 1000);
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_seq_step_info(vl53l0x_handle_t dev, vl53l0x_seq_step_t step, char* info) {
+  return VL53L0X_ERR_NOT_IMPLEMENTED;
+}
+
+vl53l0x_err_t vl53l0x_set_inter_meas_period_ms(vl53l0x_handle_t dev, uint32_t period) {
+  uint16_t osc_cal;
+  ERR_CHECK(vl53l0x_read_8(dev, OSC_CALIBRATE_VAL, &osc_cal));
+
+  uint32_t period_ms = osc_cal != 0 ? period * osc_cal : period;
+
+  ERR_CHECK(vl53l0x_write_32(dev, SYSTEM_INTERMEASUREMENT_PERIOD, period_ms));
+  dev->data.current_params.inter_meas_period_ms = period;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_inter_meas_period_ms(vl53l0x_handle_t dev, uint32_t* period) {
+  uint16_t osc_cal;
+  ERR_CHECK(vl53l0x_read_8(dev, OSC_CALIBRATE_VAL, &osc_cal));
+
+  uint32_t period_ms;
+  ERR_CHECK(vl53l0x_read_32(dev, SYSTEM_INTERMEASUREMENT_PERIOD, &period_ms));
+  if (osc_cal != 0) period_ms /= osc_cal;
+
+  dev->data.current_params.inter_meas_period_ms = period_ms;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_set_xtalk_comp(vl53l0x_handle_t dev, bool enable) {
+  fp1616_t temp_fix = !enable || dev->data.lin_correct_gain != 1000
+                          ? 0
+                          : dev->data.current_params.xtalk_compensation_rate_mcps;
+
+  ERR_CHECK(vl53l0x_write_16(dev, CROSSTALK_COMPENSATION_PEAK_RATE_MCPS,
+                             VL53L0X_FP1616_TO_FP313(temp_fix)));
+
+  dev->data.current_params.xtalk_compensation_enabled = enable;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_xtalk_comp(vl53l0x_handle_t dev, bool* enable) {
+  *enable = dev->data.current_params.xtalk_compensation_enabled;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_set_xtalk_comp_rate_mcps(vl53l0x_handle_t dev, fp1616_t rate) {
+  uint16_t word;
+
+  if (!dev->data.current_params.xtalk_compensation_enabled) {
+    dev->data.current_params.xtalk_compensation_rate_mcps = rate;
+  } else {
+    uint16_t word = dev->data.lin_correct_gain == 1000 ? VL53L0X_FP1616_TO_FP313(rate) : 0;
+    ERR_CHECK(vl53l0x_write_16(dev, CROSSTALK_COMPENSATION_PEAK_RATE_MCPS, word));
+
+    dev->data.current_params.xtalk_compensation_rate_mcps = rate;
+  }
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_xtalk_comp_rate_mcps(vl53l0x_handle_t dev, fp1616_t* rate) {
+  uint16_t word;
+  ERR_CHECK(vl53l0x_read_16(dev, CROSSTALK_COMPENSATION_PEAK_RATE_MCPS, &word));
+  if (word == 0) {
+    *rate = dev->data.current_params.xtalk_compensation_rate_mcps;
+    dev->data.current_params.xtalk_compensation_enabled = false;
+  } else {
+    fp1616_t temp_fix                                     = VL53L0X_FP313_TO_FP1616(word);
+    *rate                                                 = temp_fix;
+    dev->data.current_params.xtalk_compensation_rate_mcps = temp_fix;
+    dev->data.current_params.xtalk_compensation_enabled   = true;
+  }
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_set_ref_calibration(vl53l0x_handle_t dev, uint8_t vhv_settings,
+                                          uint8_t phase_calibration) {
+  ERR_CHECK(_vl53l0x_set_ref_calibration(dev, vhv_settings, phase_calibration));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_ref_calibration(vl53l0x_handle_t dev, uint8_t* vhv_settings,
+                                          uint8_t* phase_calibration) {
+  ERR_CHECK(_vl53l0x_get_ref_calibration(dev, vhv_settings, phase_calibration));
+
+  return VL53L0X_OK;
+}
+
+// check limit functions
+
+vl53l0x_err_t vl53l0x_get_limit_checks_number(vl53l0x_handle_t dev, uint16_t* number) {
+  *number = VL53L0X_CHECKS_NUMBER;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_limit_check_info(vl53l0x_handle_t dev, vl53l0x_check_t check,
+                                           char* info) {
+  return VL53L0X_ERR_NOT_IMPLEMENTED;
+}
+
+vl53l0x_err_t vl53l0x_get_limit_check_status(vl53l0x_handle_t dev, vl53l0x_check_t check,
+                                             bool* failed) {
+  if (check >= VL53L0X_CHECKS_NUMBER) return VL53L0X_ERR_INVALID_PARAMS;
+
+  *failed = dev->data.current_params.limit_checks_status[check];
+
+  return VL53L0X_OK;
+}
+
+// vl53l0x_err_t vl53l0x_set_limit_check(vl53l0x_handle_t dev, vl53l0x_check_t check, bool enabled) {
+
+// }
