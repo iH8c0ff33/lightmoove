@@ -1,6 +1,8 @@
 #include "vl53l0x.h"
 #include "vl53l0x_calibration.h"
 #include "vl53l0x_core.h"
+#include "vl53l0x_device.h"
+#include "vl53l0x_tuning.h"
 
 // PAL General functions
 
@@ -210,6 +212,8 @@ vl53l0x_err_t vl53l0x_get_tuning_settings(vl53l0x_handle_t dev, uint8_t** settin
                                           bool* use_internal) {
   *settings     = dev->data.tuning_settings;
   *use_internal = dev->data.use_internal_tuning_settings;
+
+  return VL53L0X_OK;
 }
 
 vl53l0x_err_t vl53l0x_static_init(vl53l0x_handle_t dev) {
@@ -227,6 +231,320 @@ vl53l0x_err_t vl53l0x_static_init(vl53l0x_handle_t dev) {
   else
     ERR_CHECK(_vl53l0x_set_ref_spads(dev, count, aperture));
 
-  // initialize tuning settings buffer
-  uint8_t* tuning_settings;
+  // load the tuning settings
+  ERR_CHECK(vl53l0x_load_tuning_settings(dev, dev->data.use_internal_tuning_settings
+                                                  ? VL53L0X_DEFAULT_TUNING
+                                                  : dev->data.tuning_settings));
+
+  // set interrupt config to new sample ready
+  ERR_CHECK(vl53l0x_set_gpio_config(dev, 0, 0, VL53L0X_GPIOFUNC_NEW_MEAS_READY,
+                                    VL53L0X_INTERRUPT_POLARITY_LOW));
+
+  // read oscillator frequency
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
+  uint16_t word;
+  ERR_CHECK(vl53l0x_read_16(dev, 0x84, &word));
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+  dev->data.dev_spec_params.osc_freq_mhz = VL53L0X_FP412_TO_FP1616(word);
+
+  // after static init, some parameters may have changed: update them
+  ERR_CHECK(vl53l0x_get_dev_params(dev, &dev->data.current_params));
+  ERR_CHECK(vl53l0x_get_range_fraction_enable(dev, &dev->data.range_fractional_enable));
+
+  // read and save system sequence config
+  ERR_CHECK(vl53l0x_read_8(dev, SYSTEM_SEQUENCE_CONFIG, &dev->data.seq_conf));
+
+  // disable, by default, MSRC and TCC
+  ERR_CHECK(vl53l0x_set_seq_step(dev, VL53L0X_SEQSTEP_MSRC, false));
+  ERR_CHECK(vl53l0x_set_seq_step(dev, VL53L0X_SEQSTEP_TCC, false));
+
+  // set PAL state to standby
+  dev->data.pal_state = VL53L0X_STATE_IDLE;
+
+  // store pre/final-range periods
+  ERR_CHECK(
+      vl53l0x_get_vcsel_pulse_period(dev, VL53L0X_VCSEL_PERIOD_PRE_RANGE,
+                                     &dev->data.dev_spec_params.pre_range_vcsel_pulse_period));
+  ERR_CHECK(
+      vl53l0x_get_vcsel_pulse_period(dev, VL53L0X_VCSEL_PERIOD_FINAL_RANGE,
+                                     &dev->data.dev_spec_params.final_range_vcsel_pulse_period));
+
+  // store pre/final-range timeouts
+  ERR_CHECK(vl53l0x_get_seq_step_timeout(dev, VL53L0X_SEQSTEP_PRE_RANGE,
+                                         &dev->data.dev_spec_params.pre_range_timeout_us));
+  ERR_CHECK(vl53l0x_get_seq_step_timeout(dev, VL53L0X_SEQSTEP_FINAL_RANGE,
+                                         &dev->data.dev_spec_params.final_range_timeout_us));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_wait_dev_booted(vl53l0x_handle_t dev) { return VL53L0X_ERR_NOT_IMPLEMENTED; }
+
+vl53l0x_err_t vl53l0x_reset(vl53l0x_handle_t dev) {
+  // set reset bit
+  ERR_CHECK(vl53l0x_write_8(dev, SOFT_RESET_GO2_SOFT_RESET_N, 0x00));
+
+  // wait for some time
+  uint8_t byte;
+  do {
+    ERR_CHECK(vl53l0x_read_8(dev, IDENTIFICATION_MODEL_ID, &byte));
+  } while (byte != 0x00);
+
+  // release reset bit
+  ERR_CHECK(vl53l0x_write_8(dev, SOFT_RESET_GO2_SOFT_RESET_N, 0x01));
+
+  // wait until boot is complete
+  do {
+    ERR_CHECK(vl53l0x_read_8(dev, IDENTIFICATION_MODEL_ID, &byte));
+  } while (byte == 0x00);
+
+  // set pal state to powerdown
+  dev->data.pal_state = VL53L0X_STATE_PWRDOWN;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_set_dev_params(vl53l0x_handle_t dev, const vl53l0x_dev_params_t* params) {
+  ERR_CHECK(vl53l0x_set_dev_mode(dev, dev->data.current_params.dev_mode));
+  ERR_CHECK(vl53l0x_set_inter_meas_period_ms(dev, dev->data.current_params.inter_meas_period_ms));
+  ERR_CHECK(
+      vl53l0x_set_xtalk_comp_rate_mcps(dev, dev->data.current_params.xtalk_compensation_rate_mcps));
+  ERR_CHECK(vl53l0x_set_offset_calibration_data_um(dev, dev->data.current_params.range_offset_um));
+
+  for (uint8_t i = 0; i < VL53L0X_CHECKS_NUMBER; i++) {
+    ERR_CHECK(vl53l0x_set_limit_check(dev, i, dev->data.current_params.limit_checks[i]));
+    ERR_CHECK(
+        vl53l0x_set_limit_check_value(dev, i, dev->data.current_params.limit_checks_value[i]));
+  }
+
+  ERR_CHECK(vl53l0x_set_wrap_around_check(dev, dev->data.current_params.wrap_around_check_enable));
+  ERR_CHECK(vl53l0x_set_meas_timing_budget_us(dev, dev->data.current_params.meas_timing_budget_us));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_dev_params(vl53l0x_handle_t dev, vl53l0x_dev_params_t* params) {
+  ERR_CHECK(vl53l0x_get_dev_mode(dev, &dev->data.current_params.dev_mode));
+  ERR_CHECK(vl53l0x_get_inter_meas_period_ms(dev, &dev->data.current_params.inter_meas_period_ms));
+  dev->data.current_params.xtalk_compensation_enabled = false;
+  ERR_CHECK(vl53l0x_get_xtalk_comp_rate_mcps(
+      dev, &dev->data.current_params.xtalk_compensation_rate_mcps));
+  ERR_CHECK(vl53l0x_get_offset_calibration_data_um(dev, &dev->data.current_params.range_offset_um));
+
+  for (uint8_t i = 0; i < VL53L0X_CHECKS_NUMBER; i++) {
+    ERR_CHECK(vl53l0x_get_limit_check(dev, i, &dev->data.current_params.limit_checks[i]));
+    ERR_CHECK(
+        vl53l0x_get_limit_check_value(dev, i, &dev->data.current_params.limit_checks_value[i]));
+  }
+
+  ERR_CHECK(vl53l0x_get_wrap_around_check(dev, &dev->data.current_params.wrap_around_check_enable));
+  ERR_CHECK(
+      vl53l0x_get_meas_timing_budget_us(dev, &dev->data.current_params.meas_timing_budget_us));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_set_dev_mode(vl53l0x_handle_t dev, vl53l0x_dev_mode_t mode) {
+  switch (mode) {
+    case VL53L0X_DEVMODE_SINGLE_RANGING:
+    case VL53L0X_DEVMODE_CONTINUOUS_RANGING:
+    case VL53L0X_DEVMODE_CONTINUOUS_TIMED_RANGING:
+    case VL53L0X_DEVMODE_GPIO_DRIVE:
+    case VL53L0X_DEVMODE_GPIO_OSC:
+      dev->data.current_params.dev_mode = mode;
+    default:
+      return VL53L0X_ERR_NOT_SUPPORTED;
+  }
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_dev_mode(vl53l0x_handle_t dev, vl53l0x_dev_mode_t* mode) {
+  *mode = dev->data.current_params.dev_mode;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_set_range_fraction_enable(vl53l0x_handle_t dev, bool enable) {
+  ERR_CHECK(vl53l0x_write_8(dev, SYSTEM_RANGE_CONFIG, enable));
+  dev->data.range_fractional_enable = enable;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_range_fraction_enable(vl53l0x_handle_t dev, bool* enable) {
+  uint8_t byte;
+  ERR_CHECK(vl53l0x_read_8(dev, SYSTEM_RANGE_CONFIG, &byte));
+  *enable = byte & 0x01;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_set_hist_mode(vl53l0x_handle_t dev, vl53l0x_hist_mode_t mode) {
+  return VL53L0X_ERR_NOT_IMPLEMENTED;
+}
+
+vl53l0x_err_t vl53l0x_get_hist_mode(vl53l0x_handle_t dev, vl53l0x_hist_mode_t* mode) {
+  return VL53L0X_ERR_NOT_IMPLEMENTED;
+}
+
+vl53l0x_err_t vl53l0x_set_meas_timing_budget_us(vl53l0x_handle_t dev, uint32_t budget) {
+  ERR_CHECK(_vl53l0x_set_meas_timing_budget_us(dev, budget));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_meas_timing_budget_us(vl53l0x_handle_t dev, uint32_t* budget) {
+  ERR_CHECK(_vl53l0x_get_meas_timing_budget_us(dev, budget));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_set_vcsel_pulse_period(vl53l0x_handle_t dev, vl53l0x_vcsel_period_type_t type,
+                                             uint8_t period) {
+  ERR_CHECK(_vl53l0x_set_vcsel_pulse_period(dev, type, period));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_vcsel_pulse_period(vl53l0x_handle_t dev, vl53l0x_vcsel_period_type_t type,
+                                             uint8_t* period) {
+  ERR_CHECK(_vl53l0x_get_vcsel_pulse_period(dev, type, period));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_set_seq_step(vl53l0x_handle_t dev, vl53l0x_seq_step_t step, bool enabled) {
+  uint8_t seq_conf;
+  ERR_CHECK(vl53l0x_read_8(dev, SYSTEM_SEQUENCE_CONFIG, &seq_conf));
+  uint8_t new_seq_conf = seq_conf;
+
+  if (enabled) {
+    // enable specified step
+    switch (step) {
+      case VL53L0X_SEQSTEP_TCC:
+        new_seq_conf |= 0x10;
+        break;
+      case VL53L0X_SEQSTEP_DSS:
+        new_seq_conf |= 0x28;
+        break;
+      case VL53L0X_SEQSTEP_MSRC:
+        new_seq_conf |= 0x04;
+        break;
+      case VL53L0X_SEQSTEP_PRE_RANGE:
+        new_seq_conf |= 0x40;
+        break;
+      case VL53L0X_SEQSTEP_FINAL_RANGE:
+        new_seq_conf |= 0x80;
+        break;
+      default:
+        return VL53L0X_ERR_INVALID_PARAMS;
+    }
+  } else {
+    // disable specified step
+    switch (step) {
+      case VL53L0X_SEQSTEP_TCC:
+        new_seq_conf &= !0x10;
+        break;
+      case VL53L0X_SEQSTEP_DSS:
+        new_seq_conf &= !0x28;
+        break;
+      case VL53L0X_SEQSTEP_MSRC:
+        new_seq_conf &= !0x04;
+        break;
+      case VL53L0X_SEQSTEP_PRE_RANGE:
+        new_seq_conf &= !0x40;
+        break;
+      case VL53L0X_SEQSTEP_FINAL_RANGE:
+        new_seq_conf &= !0x80;
+        break;
+      default:
+        return VL53L0X_ERR_INVALID_PARAMS;
+    }
+  }
+
+  if (new_seq_conf != seq_conf) {
+    // apply new sequence
+    ERR_CHECK(vl53l0x_write_8(dev, SYSTEM_SEQUENCE_CONFIG, new_seq_conf));
+    dev->data.seq_conf = new_seq_conf;
+
+    // recalculate timing budget
+    uint32_t budget = dev->data.current_params.meas_timing_budget_us;
+    ERR_CHECK(vl53l0x_set_meas_timing_budget_us(dev, budget));
+  }
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t is_step_enabled(uint8_t seq_conf, vl53l0x_seq_step_t step, bool* enabled) {
+  switch (step) {
+    case VL53L0X_SEQSTEP_TCC:
+      *enabled = (seq_conf & 0x10) >> 4;
+      break;
+    case VL53L0X_SEQSTEP_DSS:
+      *enabled = (seq_conf & 0x08) >> 3;
+      break;
+    case VL53L0X_SEQSTEP_MSRC:
+      *enabled = (seq_conf & 0x04) >> 2;
+      break;
+    case VL53L0X_SEQSTEP_PRE_RANGE:
+      *enabled = (seq_conf & 0x40) >> 6;
+      break;
+    case VL53L0X_SEQSTEP_FINAL_RANGE:
+      *enabled = (seq_conf & 0x80) >> 7;
+      break;
+    default:
+      return VL53L0X_ERR_INVALID_PARAMS;
+  }
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_seq_step(vl53l0x_handle_t dev, vl53l0x_seq_step_t step, bool* enabled) {
+  uint8_t seq_conf;
+  ERR_CHECK(vl53l0x_read_8(dev, SYSTEM_SEQUENCE_CONFIG, &seq_conf));
+
+  ERR_CHECK(is_step_enabled(seq_conf, step, enabled));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_seq_steps(vl53l0x_handle_t dev, vl53l0x_seq_steps_t* steps) {
+  uint8_t seq_conf;
+  ERR_CHECK(vl53l0x_read_8(dev, SYSTEM_SEQUENCE_CONFIG, &seq_conf));
+
+  ERR_CHECK(is_step_enabled(seq_conf, VL53L0X_SEQSTEP_TCC, &steps->tcc));
+  ERR_CHECK(is_step_enabled(seq_conf, VL53L0X_SEQSTEP_DSS, &steps->dss));
+  ERR_CHECK(is_step_enabled(seq_conf, VL53L0X_SEQSTEP_MSRC, &steps->msrc));
+  ERR_CHECK(is_step_enabled(seq_conf, VL53L0X_SEQSTEP_PRE_RANGE, &steps->pre_range));
+  ERR_CHECK(is_step_enabled(seq_conf, VL53L0X_SEQSTEP_FINAL_RANGE, &steps->final_range));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_seq_steps_number(vl53l0x_handle_t dev, uint8_t* number) {
+  *number = VL53L0X_SEQ_STEP_CHECKS_NUMBER;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_set_seq_step_timeout(vl53l0x_handle_t dev, vl53l0x_seq_step_t step,
+                                           fp1616_t timeout_ms) {
+  uint32_t timeout_us = ((timeout_ms * 1000) + 0x8000) >> 16;
+
+  // read curret value (in order to revert in case of an error)
+  uint32_t old_timeout_us;
+  ERR_CHECK(_vl53l0x_get_seq_step_timeout(dev, step, &old_timeout_us));
+  // now set the new value
+  ERR_CHECK(_vl53l0x_set_seq_step_timeout(dev, step, timeout_us));
+
+  vl53l0x_err_t err =
+      vl53l0x_set_meas_timing_budget_us(dev, dev->data.current_params.meas_timing_budget_us);
+  if (err != VL53L0X_OK) {  // revert if failed
+    ERR_CHECK(_vl53l0x_set_seq_step_timeout(dev, step, old_timeout_us));
+    ERR_CHECK(
+        vl53l0x_set_meas_timing_budget_us(dev, dev->data.current_params.meas_timing_budget_us));
+  }
+
+  return VL53L0X_OK;
 }
