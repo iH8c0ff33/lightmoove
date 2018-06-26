@@ -32,6 +32,14 @@ typedef enum check {
 
 #define VL53L0X_CHECKS_NUMBER 6
 
+typedef enum gpio_func {
+  VL53L0X_GPIOFUNC_OFF                  = 0,  // NO interrupt
+  VL53L0X_GPIOFUNC_THRESHOLD_CROSS_LOW  = 1,  // value < thresh_low
+  VL53L0X_GPIOFUNC_THRESHOLD_CROSS_HIGH = 2,  // value > tresh_high
+  VL53L0X_GPIOFUNC_THRESHOLD_CROSS_OUT  = 3,  // either < low or > high
+  VL53L0X_GPIOFUNC_NEW_MEAS_READY       = 4,  // new sample is ready
+} vl53l0x_gpio_func_t;
+
 #define VL53L0X_SYSRANGE_MODE_MASK 0x0f
 
 typedef enum sysrange_mode {
