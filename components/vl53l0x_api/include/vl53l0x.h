@@ -67,11 +67,11 @@ vl53l0x_err_t vl53l0x_get_vcsel_pulse_period(vl53l0x_handle_t dev, vl53l0x_vcsel
 vl53l0x_err_t vl53l0x_set_seq_step(vl53l0x_handle_t dev, vl53l0x_seq_step_t step, bool enabled);
 vl53l0x_err_t vl53l0x_get_seq_step(vl53l0x_handle_t dev, vl53l0x_seq_step_t step, bool* enabled);
 vl53l0x_err_t vl53l0x_get_seq_steps(vl53l0x_handle_t dev, vl53l0x_seq_steps_t* steps);
+vl53l0x_err_t vl53l0x_get_seq_steps_number(vl53l0x_handle_t dev, uint8_t* number);
 vl53l0x_err_t vl53l0x_set_seq_step_timeout(vl53l0x_handle_t dev, vl53l0x_seq_step_t step,
                                            fp1616_t timeout_ms);
 vl53l0x_err_t vl53l0x_get_seq_step_timeout(vl53l0x_handle_t dev, vl53l0x_seq_step_t step,
                                            fp1616_t* timeout_ms);
-vl53l0x_err_t vl53l0x_get_seq_steps_number(vl53l0x_handle_t dev, uint8_t* number);
 vl53l0x_err_t vl53l0x_get_seq_step_info(vl53l0x_handle_t dev, vl53l0x_seq_step_t step, char* info);
 
 vl53l0x_err_t vl53l0x_set_inter_meas_period_ms(vl53l0x_handle_t dev, uint32_t period);
