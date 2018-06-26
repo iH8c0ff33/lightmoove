@@ -78,7 +78,7 @@ typedef struct {
   int32_t  range_offset_um;
 
   bool  limit_checks[VL53L0X_CHECKS_NUMBER];
-  uint8_t  limit_checks_status[VL53L0X_CHECKS_NUMBER];
+  bool  limit_checks_status[VL53L0X_CHECKS_NUMBER];
   fp1616_t limit_checks_value[VL53L0X_CHECKS_NUMBER];
   bool     wrap_around_check_enable;
 } vl53l0x_dev_params_t;
