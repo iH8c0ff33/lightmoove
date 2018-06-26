@@ -77,7 +77,7 @@ typedef struct {
   fp1616_t xtalk_compensation_rate_mcps;
   int32_t  range_offset_um;
 
-  uint8_t  limit_checks[VL53L0X_CHECKS_NUMBER];
+  bool  limit_checks[VL53L0X_CHECKS_NUMBER];
   uint8_t  limit_checks_status[VL53L0X_CHECKS_NUMBER];
   fp1616_t limit_checks_value[VL53L0X_CHECKS_NUMBER];
   bool     wrap_around_check_enable;
@@ -187,6 +187,11 @@ typedef struct dev_data {
   uint16_t                    dmax_cal_range_mm;
   fp1616_t                    dmax_cal_signal_rate_rtn_mcps;
 } vl53l0x_dev_data_t;
+
+typedef enum interrupt_polarity {
+  VL53L0X_INTERRUPT_POLARITY_LOW  = 0,  // use for falling edge interrupt
+  VL53L0X_INTERRUPT_POLARITY_HIGH = 1,  // use for rising edge interrupt
+} vl53l0x_interrupt_polarity_t;
 
 typedef enum {
   VL53L0X_VCSEL_PERIOD_PRE_RANGE,
