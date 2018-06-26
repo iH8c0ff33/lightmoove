@@ -3,4 +3,6 @@ BasedOnStyle: Google
 ColumnLimit: 100
 AlignConsecutiveAssignments: true
 AlignConsecutiveDeclarations: true
+AlignOperands: true
+AlignTrailingComments: true
 ...
