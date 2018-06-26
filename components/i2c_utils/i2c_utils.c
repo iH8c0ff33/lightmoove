@@ -1,4 +1,4 @@
-#include "i2c_util.h"
+#include "i2c_utils.h"
 
 esp_err_t i2c_write_reg(uint8_t port, uint32_t timeout, uint8_t addr, uint8_t reg, uint8_t *data,
                         uint8_t length) {
