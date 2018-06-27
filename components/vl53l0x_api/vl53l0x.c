@@ -2,6 +2,7 @@
 #include "vl53l0x_calibration.h"
 #include "vl53l0x_core.h"
 #include "vl53l0x_device.h"
+#include "vl53l0x_interrupt_tuning.h"
 #include "vl53l0x_tuning.h"
 
 // PAL General functions
@@ -90,14 +91,6 @@ vl53l0x_err_t vl53l0x_get_lin_correct_gain(vl53l0x_handle_t dev, uint16_t* gain)
   *gain = dev->data.lin_correct_gain;
 
   return VL53L0X_OK;
-}
-
-vl53l0x_err_t vl53l0x_set_group_param_hold(vl53l0x_handle_t dev, uint8_t hold) {
-  return VL53L0X_ERR_NOT_IMPLEMENTED;
-}
-
-vl53l0x_err_t vl53l0x_get_upper_limit_mm(vl53l0x_handle_t dev, uint16_t* limit) {
-  return VL53L0X_ERR_NOT_IMPLEMENTED;
 }
 
 vl53l0x_err_t vl53l0x_get_total_signal_rate(vl53l0x_handle_t dev, fp1616_t* rate) {
@@ -217,8 +210,6 @@ vl53l0x_err_t vl53l0x_get_tuning_settings(vl53l0x_handle_t dev, uint8_t** settin
 }
 
 vl53l0x_err_t vl53l0x_static_init(vl53l0x_handle_t dev) {
-  return VL53L0X_ERR_NOT_IMPLEMENTED;  // TODO: Implement
-
   ERR_CHECK(vl53l0x_get_info_from_dev(dev, 1));
 
   // set the ref spad from NVM
@@ -378,14 +369,6 @@ vl53l0x_err_t vl53l0x_get_range_fraction_enable(vl53l0x_handle_t dev, bool* enab
   *enable = byte & 0x01;
 
   return VL53L0X_OK;
-}
-
-vl53l0x_err_t vl53l0x_set_hist_mode(vl53l0x_handle_t dev, vl53l0x_hist_mode_t mode) {
-  return VL53L0X_ERR_NOT_IMPLEMENTED;
-}
-
-vl53l0x_err_t vl53l0x_get_hist_mode(vl53l0x_handle_t dev, vl53l0x_hist_mode_t* mode) {
-  return VL53L0X_ERR_NOT_IMPLEMENTED;
 }
 
 vl53l0x_err_t vl53l0x_set_meas_timing_budget_us(vl53l0x_handle_t dev, uint32_t budget) {
@@ -814,6 +797,93 @@ vl53l0x_err_t vl53l0x_get_wrap_around_check(vl53l0x_handle_t dev, bool* enabled)
   *enabled = byte & 0x80;
 
   dev->data.current_params.wrap_around_check_enable = *enabled;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_set_dmax_cal_params(vl53l0x_handle_t dev, uint16_t range_mm,
+                                          fp1616_t signal_rate_rtn_mcps) {
+  // if one of the parameters is zero read value from NVM
+  if (range_mm == 0 || signal_rate_rtn_mcps == 0) {
+    // run get_info_from_dev with option 4 to get signal rate at 400mm
+    vl53l0x_get_info_from_dev(dev, 4);
+
+    dev->data.dmax_cal_range_mm = 400;
+    dev->data.dmax_cal_signal_rate_rtn_mcps =
+        dev->data.dev_spec_params.signal_rate_meas_fixed_400mm;
+  } else {
+    // set user parameters
+    dev->data.dmax_cal_range_mm             = range_mm;
+    dev->data.dmax_cal_signal_rate_rtn_mcps = signal_rate_rtn_mcps;
+  }
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_dmax_cal_params(vl53l0x_handle_t dev, uint16_t* range_mm,
+                                          fp1616_t* signal_rate_rtn_mcps) {
+  *range_mm             = dev->data.dmax_cal_range_mm;
+  *signal_rate_rtn_mcps = dev->data.dmax_cal_signal_rate_rtn_mcps;
+
+  return VL53L0X_OK;
+}
+
+// PAL measurement functions
+
+vl53l0x_err_t vl53l0x_perform_single_meas(vl53l0x_handle_t dev) {
+  vl53l0x_dev_mode_t mode;
+  ERR_CHECK(vl53l0x_get_dev_mode(dev, &mode));
+
+  if (mode == VL53L0X_DEVMODE_SINGLE_RANGING) ERR_CHECK(vl53l0x_start_meas(dev));
+  ERR_CHECK(vl53l0x_meas_poll_for_completion(dev));
+
+  if (mode == VL53L0X_DEVMODE_SINGLE_RANGING) dev->data.pal_state = VL53L0X_STATE_IDLE;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_perform_ref_calibration(vl53l0x_handle_t dev, uint8_t* vhv_settings,
+                                              uint8_t* phase_cal) {
+  ERR_CHECK(_vl53l0x_perform_ref_calibration(dev, vhv_settings, phase_cal, true));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_perform_xtalk_calibration(vl53l0x_handle_t dev, fp1616_t xtalk_cal_distance,
+                                                fp1616_t* xtalk_compensation_rate_mcps) {
+  ERR_CHECK(
+      _vl53l0x_perform_xtalk_calibration(dev, xtalk_cal_distance, xtalk_compensation_rate_mcps));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_perform_offset_calibration(vl53l0x_handle_t dev, fp1616_t cal_dist_mm,
+                                                 int32_t* offset_um) {
+  ERR_CHECK(_vl53l0x_perform_offset_calibration(dev, cal_dist_mm, offset_um));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_check_load_interrupt_settings(vl53l0x_handle_t dev, uint8_t start_flag) {
+  uint8_t cfg = dev->data.dev_spec_params.pin_0_gpio_func;
+
+  if (cfg == VL53L0X_GPIOFUNC_THRESHOLD_CROSS_HIGH || cfg == VL53L0X_GPIOFUNC_THRESHOLD_CROSS_LOW ||
+      cfg == VL53L0X_GPIOFUNC_THRESHOLD_CROSS_OUT) {
+    fp1616_t thresh_low, thresh_high;
+    ERR_CHECK(vl53l0x_get_interrupt_threshold(dev, VL53L0X_DEVMODE_CONTINUOUS_RANGING, &thresh_low,
+                                              &thresh_high));
+
+    if (thresh_low > 255 * 65535 || thresh_high > 255 * 65536) {
+      if (start_flag) {
+        ERR_CHECK(vl53l0x_load_tuning_settings(dev, VL53L0X_INTERRUPT_THRESH_TUNING));
+      } else {
+        ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x04));
+        ERR_CHECK(vl53l0x_write_8(dev, 0x70, 0x00));
+        ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+        ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+      }
+    }
+  }
 
   return VL53L0X_OK;
 }
