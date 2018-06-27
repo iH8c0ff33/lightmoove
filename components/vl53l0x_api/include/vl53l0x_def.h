@@ -113,6 +113,7 @@ typedef struct {
   uint16_t effective_spad_rtn_count;
   // NOTE: divide by 256
 
+  uint8_t zone_id;
   uint8_t range_fractional_part;
   uint8_t range_status;
 } vl53l0x_ranging_meas_data_t;
@@ -217,7 +218,7 @@ typedef enum {
 
 // MACROs
 #define VL53L0X_FP1616_TO_FP97(x) (uint16_t)(((x) >> 9) & 0xffff)
-#define VL53L0X_FP96_TO_FP1616(x) (fp1616_t)(Value << 9)
+#define VL53L0X_FP97_TO_FP1616(x) (fp1616_t)((x) << 9)
 
 #define VL53L0X_FP1616_TO_FP88(x) (uint16_t)(((x) >> 8) & 0xFFFF)
 #define VL53L0X_FP88_TO_FP1616(x) (fp1616_t)((x) << 8)
@@ -235,6 +236,8 @@ typedef enum {
 #define VL53L0X_FP53_TO_FP1616(x) (fp1616_t)((x) << 13)
 
 #define VL53L0X_FP1616_TO_FP102(x) (uint16_t)(((x) >> 14) & 0x0FFF)
-#define VL53L0X_FP102_TO_FP1616(x) (fp1616_t)(Value << 12)
+#define VL53L0X_FP102_TO_FP1616(x) (fp1616_t)((x) << 12)
+
+#define VL53L0X_MAKEUINT16(lsb, msb) (uint16_t)((((uint16_t)(msb)) << 8) + (uint16_t)(lsb))
 
 #endif
