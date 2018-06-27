@@ -77,8 +77,8 @@ typedef struct {
   fp1616_t xtalk_compensation_rate_mcps;
   int32_t  range_offset_um;
 
-  bool  limit_checks[VL53L0X_CHECKS_NUMBER];
-  bool  limit_checks_status[VL53L0X_CHECKS_NUMBER];
+  bool     limit_checks[VL53L0X_CHECKS_NUMBER];
+  bool     limit_checks_status[VL53L0X_CHECKS_NUMBER];
   fp1616_t limit_checks_value[VL53L0X_CHECKS_NUMBER];
   bool     wrap_around_check_enable;
 } vl53l0x_dev_params_t;
@@ -139,6 +139,8 @@ typedef struct {
   fp1616_t osc_freq_mhz;
 
   uint16_t last_encoded_timeout;
+
+  vl53l0x_gpio_func_t pin_0_gpio_func;
 
   uint32_t final_range_timeout_us;
   uint8_t  final_range_vcsel_pulse_period;
