@@ -937,3 +937,20 @@ vl53l0x_err_t vl53l0x_start_meas(vl53l0x_handle_t dev) {
 
   return VL53L0X_OK;
 }
+
+vl53l0x_err_t vl53l0x_stop_meas(vl53l0x_handle_t dev) {
+  ERR_CHECK(vl53l0x_write_8(dev, SYSRANGE_START, VL53L0X_SYSRANGE_MODE_SINGLESHOT));
+
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
+  ERR_CHECK(vl53l0x_write_8(dev, 0x00, 0x00));
+  ERR_CHECK(vl53l0x_write_8(dev, 0x91, 0x00));
+  ERR_CHECK(vl53l0x_write_8(dev, 0x00, 0x01));
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+
+  dev->data.pal_state = VL53L0X_STATE_IDLE;
+
+  // check wether we need to apply interrupt settings
+  ERR_CHECK(vl53l0x_check_load_interrupt_settings(dev, false));
+
+  return VL53L0X_OK;
+}
