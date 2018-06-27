@@ -265,3 +265,44 @@ vl53l0x_err_t vl53l0x_get_info_from_dev(vl53l0x_handle_t dev, uint8_t option) {
 
   return VL53L0X_OK;
 }
+
+uint32_t calc_macro_period_ps(uint8_t vcsel_period_pclks) {
+  uint64_t pll_period_ps      = 1655;
+  uint32_t macro_period_vclks = 2304;
+
+  return macro_period_vclks * vcsel_period_pclks * pll_period_ps;
+}
+
+uint16_t vl53l0x_encode_timeout(uint32_t macro_clks) {
+  uint16_t msb = 0;
+  uint32_t lsb = 0;
+
+  if (macro_clks > 0) {
+    lsb = macro_clks - 1;
+
+    while (lsb & 0xffffff00 > 0) {
+      lsb >>= 1;
+      msb++;
+    }
+  }
+
+  return (msb << 8) + (uint16_t)(lsb & 0xff);
+}
+
+uint32_t vl53l0x_decode_timeout(uint16_t encoded) {
+  return ((uint32_t)(encoded & 0xff) << (uint32_t)((encoded & 0xff00) >> 8)) + 1;
+}
+
+uint32_t calc_timeout_mclks(uint32_t timeout_period_us, uint8_t vcsel_period_pclks) {
+  uint32_t macro_period_ps = calc_macro_period_ps(vcsel_period_pclks);
+  macro_period_ps          = (macro_period_ps + 500) / 1000;
+
+  return (uint32_t)(((timeout_period_us * 1000) + (macro_period_ps / 2)) / macro_period_ps);
+}
+
+uint32_t calc_timeout_us(uint16_t timeout_period_mclks, uint8_t vcsel_period_pckls) {
+  uint32_t macro_period_ps = calc_macro_period_ps(vcsel_period_pckls);
+  macro_period_ps          = (macro_period_ps + 500) / 1000;
+
+  return ((timeout_period_mclks * macro_period_ps) + (macro_period_ps / 2)) / 1000;
+}
