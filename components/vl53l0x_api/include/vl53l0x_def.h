@@ -2,6 +2,7 @@
 #define _VL53L0X_DEF_H
 
 #define VL53L0X_MAX_STRING_LENGTH 32
+#define VL53L0X_MAX_LOOPS 200
 
 #include "esp_system.h"
 #include "vl53l0x_device.h"
