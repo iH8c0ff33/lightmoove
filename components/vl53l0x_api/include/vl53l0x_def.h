@@ -153,7 +153,7 @@ typedef struct {
   uint16_t sigma_est_eff_pulse_width;
   uint16_t sigma_est_eff_amb_width;
 
-  bool     read_from_dev_done;
+  uint8_t     read_from_dev_done;
   uint8_t  module_id;
   uint8_t  revision;
   char     product_id[VL53L0X_MAX_STRING_LENGTH];
