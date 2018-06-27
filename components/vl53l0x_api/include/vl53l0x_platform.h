@@ -24,4 +24,8 @@ vl53l0x_err_t vl53l0x_read_32(vl53l0x_handle_t dev, uint8_t reg, uint32_t* data)
 vl53l0x_err_t vl53l0x_update_8(vl53l0x_handle_t dev, uint8_t reg, uint8_t and_data,
                                uint8_t or_data);
 
+vl53l0x_err_t vl53l0x_polling_delay(vl53l0x_handle_t dev);
+
+#define VL53L0X_COPYSTRING(str, ...) strcpy(str, ##__VA_ARGS__)
+
 #endif
