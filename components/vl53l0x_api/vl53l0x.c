@@ -678,6 +678,142 @@ vl53l0x_err_t vl53l0x_get_limit_check_status(vl53l0x_handle_t dev, vl53l0x_check
   return VL53L0X_OK;
 }
 
-// vl53l0x_err_t vl53l0x_set_limit_check(vl53l0x_handle_t dev, vl53l0x_check_t check, bool enabled) {
+vl53l0x_err_t vl53l0x_set_limit_check(vl53l0x_handle_t dev, vl53l0x_check_t check, bool enabled) {
+  if (check >= VL53L0X_CHECKS_NUMBER) return VL53L0X_ERR_INVALID_PARAMS;
 
-// }
+  fp1616_t value = enabled ? dev->data.current_params.limit_checks_value[check] : 0;
+
+  switch (check) {
+    case VL53L0X_CHECK_SIGNAL_RATE_FINAL_RANGE:
+      ERR_CHECK(vl53l0x_write_16(dev, FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT,
+                                 enabled ? VL53L0X_FP1616_TO_FP97(value) : 0));
+      break;
+    case VL53L0X_CHECK_SIGMA_FINAL_RANGE:
+    case VL53L0X_CHECK_SIGNAL_REF_CLIP:
+    case VL53L0X_CHECK_RANGE_IGNORE_THRESHOLD:
+      // internal computation
+      break;
+    case VL53L0X_CHECK_SIGNAL_RATE_MSRC:
+      uint8_t byte = (uint8_t)(!enabled << 1);
+      ERR_CHECK(vl53l0x_update_8(dev, MSRC_CONFIG_CONTROL, 0xfe, byte));
+      break;
+    case VL53L0X_CHECK_SIGNAL_RATE_PRE_RANGE:
+      uint8_t byte = (uint8_t)(!enabled << 4);
+      ERR_CHECK(vl53l0x_update_8(dev, MSRC_CONFIG_CONTROL, 0xef, byte));
+      break;
+    default:
+      return VL53L0X_ERR_INVALID_PARAMS;
+  }
+
+  dev->data.current_params.limit_checks[check] = enabled;
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_limit_check(vl53l0x_handle_t dev, vl53l0x_check_t check, bool* enabled) {
+  if (check >= VL53L0X_CHECKS_NUMBER) return VL53L0X_ERR_INVALID_PARAMS;
+  *enabled = dev->data.current_params.limit_checks[check];
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_set_limit_check_value(vl53l0x_handle_t dev, vl53l0x_check_t check,
+                                            fp1616_t value) {
+  if (check >= VL53L0X_CHECKS_NUMBER) return VL53L0X_ERR_INVALID_PARAMS;
+
+  if (dev->data.current_params.limit_checks[check]) {
+    switch (check) {
+      case VL53L0X_CHECK_SIGMA_FINAL_RANGE:
+      case VL53L0X_CHECK_SIGNAL_REF_CLIP:
+      case VL53L0X_CHECK_RANGE_IGNORE_THRESHOLD:
+        // internal computation
+        break;
+      case VL53L0X_CHECK_SIGNAL_RATE_FINAL_RANGE:
+        ERR_CHECK(vl53l0x_write_16(dev, FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT,
+                                   VL53L0X_FP1616_TO_FP97(value)));
+        break;
+      case VL53L0X_CHECK_SIGNAL_RATE_MSRC:
+      case VL53L0X_CHECK_SIGNAL_RATE_PRE_RANGE:
+        ERR_CHECK(vl53l0x_write_16(dev, PRE_RANGE_MIN_COUNT_RATE_RTN_LIMIT, value));
+        break;
+      default:
+        return VL53L0X_ERR_INVALID_PARAMS;
+    }
+  }
+  dev->data.current_params.limit_checks_value[check] = value;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_limit_check_value(vl53l0x_handle_t dev, vl53l0x_check_t check,
+                                            fp1616_t* value) {
+  if (check >= VL53L0X_CHECKS_NUMBER) return VL53L0X_ERR_INVALID_PARAMS;
+
+  fp1616_t device_value = 0;
+
+  switch (check) {
+    case VL53L0X_CHECK_SIGMA_FINAL_RANGE:
+    case VL53L0X_CHECK_SIGNAL_REF_CLIP:
+    case VL53L0X_CHECK_RANGE_IGNORE_THRESHOLD:
+      // internal computation
+      break;
+    case VL53L0X_CHECK_SIGNAL_RATE_FINAL_RANGE:
+      ERR_CHECK(vl53l0x_read_16(dev, FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT, &device_value));
+      break;
+    case VL53L0X_CHECK_SIGNAL_RATE_MSRC:
+    case VL53L0X_CHECK_SIGNAL_RATE_PRE_RANGE:
+      ERR_CHECK(vl53l0x_read_16(dev, PRE_RANGE_MIN_COUNT_RATE_RTN_LIMIT, &device_value));
+      break;
+    default:
+      return VL53L0X_ERR_INVALID_PARAMS;
+  }
+
+  *value = device_value != 0 ? device_value : dev->data.current_params.limit_checks_value[check];
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_limit_check_current(vl53l0x_handle_t dev, vl53l0x_check_t check,
+                                              fp1616_t* current) {
+  if (check >= VL53L0X_CHECKS_NUMBER) return VL53L0X_ERR_INVALID_PARAMS;
+
+  switch (check) {
+    // NOTE: run a ranging measure to get latest values
+    case VL53L0X_CHECK_SIGMA_FINAL_RANGE:
+      *current = dev->data.sigma_est;
+      break;
+    case VL53L0X_CHECK_SIGNAL_REF_CLIP:
+      *current = dev->data.last_signal_ref_mcps;
+      break;
+    case VL53L0X_CHECK_SIGNAL_RATE_FINAL_RANGE:
+    case VL53L0X_CHECK_RANGE_IGNORE_THRESHOLD:
+    case VL53L0X_CHECK_SIGNAL_RATE_MSRC:
+    case VL53L0X_CHECK_SIGNAL_RATE_PRE_RANGE:
+      *current = dev->data.last_range_meas.signal_rate_rtn_mcps;
+      break;
+    default:
+      return VL53L0X_ERR_INVALID_PARAMS;
+  }
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_set_wrap_around_check(vl53l0x_handle_t dev, bool enabled) {
+  uint8_t byte;
+  ERR_CHECK(vl53l0x_read_8(dev, SYSTEM_SEQUENCE_CONFIG, &byte));
+  byte = enabled ? (byte | 0x80) : (byte & 0xf7);
+  ERR_CHECK(vl53l0x_write_8(dev, SYSTEM_SEQUENCE_CONFIG, byte));
+
+  dev->data.current_params.wrap_around_check_enable = enabled;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_wrap_around_check(vl53l0x_handle_t dev, bool* enabled) {
+  uint8_t byte;
+  ERR_CHECK(vl53l0x_read_8(dev, SYSTEM_SEQUENCE_CONFIG, &byte));
+  *enabled = byte & 0x80;
+
+  dev->data.current_params.wrap_around_check_enable = *enabled;
+
+  return VL53L0X_OK;
+}
