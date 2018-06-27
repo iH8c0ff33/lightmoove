@@ -954,3 +954,79 @@ vl53l0x_err_t vl53l0x_stop_meas(vl53l0x_handle_t dev) {
 
   return VL53L0X_OK;
 }
+
+vl53l0x_err_t vl53l0x_get_meas_data_ready(vl53l0x_handle_t dev, bool* ready) {
+  if (dev->data.dev_spec_params.pin_0_gpio_func == VL53L0X_GPIOFUNC_NEW_MEAS_READY) {
+    uint32_t mask;
+    ERR_CHECK(vl53l0x_get_interrupt_mask_status(dev, &mask));
+
+    *ready = (uint8_t)mask == VL53L0X_GPIOFUNC_NEW_MEAS_READY;
+  } else {
+    uint8_t status;
+    ERR_CHECK(vl53l0x_read_8(dev, RESULT_RANGE_STATUS, &status));
+
+    *ready = status & 0x01;
+  }
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_ranging_meas_data(vl53l0x_handle_t             dev,
+                                            vl53l0x_ranging_meas_data_t* data) {
+  uint8_t buffer[12];
+  ERR_CHECK(vl53l0x_read_n(dev, 0x14, buffer, 12));
+
+  data->zone_id   = 0;  // only one zone
+  data->timestamp = 0;  // WARN: not implemented
+
+  // measurement
+  uint16_t word = VL53L0X_MAKEUINT16(buffer[11], buffer[10]);
+
+  data->meas_time_us = 0;
+
+  fp1616_t signal_rate       = VL53L0X_FP97_TO_FP1616(VL53L0X_MAKEUINT16(buffer[7], buffer[6]));
+  data->signal_rate_rtn_mcps = signal_rate;
+
+  fp1616_t ambient_rate       = VL53L0X_FP97_TO_FP1616(VL53L0X_MAKEUINT16(buffer[9], buffer[8]));
+  data->ambient_rate_rtn_mcps = ambient_rate;
+
+  data->effective_spad_rtn_count = VL53L0X_MAKEUINT16(buffer[3], buffer[2]);
+
+  uint8_t status = buffer[0];
+
+  if (dev->data.lin_correct_gain != 1000) {
+    word = (uint16_t)((dev->data.lin_correct_gain * word + 500) / 1000);
+
+    // implement xtalk
+    uint16_t xtalk_range_mm;
+    if (dev->data.current_params.xtalk_compensation_enabled) {
+      if ((signal_rate - ((dev->data.current_params.xtalk_compensation_rate_mcps *
+                           data->effective_spad_rtn_count) >>
+                          8)) <= 0) {
+        xtalk_range_mm = dev->data.range_fractional_enable ? 8888 : (8888 << 2);
+      } else {
+        xtalk_range_mm = (word * signal_rate) /
+                         (signal_rate - ((dev->data.current_params.xtalk_compensation_rate_mcps *
+                                          data->effective_spad_rtn_count) >>
+                                         8));
+      }
+
+      word = xtalk_range_mm;
+    }
+  }
+
+  data->range_mm = dev->data.range_fractional_enable ? (uint16_t)(word >> 2) : word;
+  data->range_fractional_part =
+      dev->data.range_fractional_enable ? (uint8_t)((word & 0x03) << 6) : 0;
+
+  uint8_t pal_range_status;
+  ERR_CHECK(vl53l0x_get_pal_range_status(dev, status, signal_rate, data->effective_spad_rtn_count,
+                                         data, &pal_range_status));
+
+  data->range_status = pal_range_status;
+
+  // copy last read data into dev buffer
+  dev->data.last_range_meas = *data;
+
+  return VL53L0X_OK;
+}
