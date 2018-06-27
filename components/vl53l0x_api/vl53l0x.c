@@ -552,7 +552,7 @@ vl53l0x_err_t vl53l0x_get_seq_step_info(vl53l0x_handle_t dev, vl53l0x_seq_step_t
 
 vl53l0x_err_t vl53l0x_set_inter_meas_period_ms(vl53l0x_handle_t dev, uint32_t period) {
   uint16_t osc_cal;
-  ERR_CHECK(vl53l0x_read_8(dev, OSC_CALIBRATE_VAL, &osc_cal));
+  ERR_CHECK(vl53l0x_read_16(dev, OSC_CALIBRATE_VAL, &osc_cal));
 
   uint32_t period_ms = osc_cal != 0 ? period * osc_cal : period;
 
@@ -564,7 +564,7 @@ vl53l0x_err_t vl53l0x_set_inter_meas_period_ms(vl53l0x_handle_t dev, uint32_t pe
 
 vl53l0x_err_t vl53l0x_get_inter_meas_period_ms(vl53l0x_handle_t dev, uint32_t* period) {
   uint16_t osc_cal;
-  ERR_CHECK(vl53l0x_read_8(dev, OSC_CALIBRATE_VAL, &osc_cal));
+  ERR_CHECK(vl53l0x_read_16(dev, OSC_CALIBRATE_VAL, &osc_cal));
 
   uint32_t period_ms;
   ERR_CHECK(vl53l0x_read_32(dev, SYSTEM_INTERMEASUREMENT_PERIOD, &period_ms));
@@ -595,8 +595,6 @@ vl53l0x_err_t vl53l0x_get_xtalk_comp(vl53l0x_handle_t dev, bool* enable) {
 }
 
 vl53l0x_err_t vl53l0x_set_xtalk_comp_rate_mcps(vl53l0x_handle_t dev, fp1616_t rate) {
-  uint16_t word;
-
   if (!dev->data.current_params.xtalk_compensation_enabled) {
     dev->data.current_params.xtalk_compensation_rate_mcps = rate;
   } else {
@@ -666,6 +664,7 @@ vl53l0x_err_t vl53l0x_set_limit_check(vl53l0x_handle_t dev, vl53l0x_check_t chec
 
   fp1616_t value = enabled ? dev->data.current_params.limit_checks_value[check] : 0;
 
+  uint8_t byte;
   switch (check) {
     case VL53L0X_CHECK_SIGNAL_RATE_FINAL_RANGE:
       ERR_CHECK(vl53l0x_write_16(dev, FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT,
@@ -677,11 +676,11 @@ vl53l0x_err_t vl53l0x_set_limit_check(vl53l0x_handle_t dev, vl53l0x_check_t chec
       // internal computation
       break;
     case VL53L0X_CHECK_SIGNAL_RATE_MSRC:
-      uint8_t byte = (uint8_t)(!enabled << 1);
+      byte = (uint8_t)(!enabled << 1);
       ERR_CHECK(vl53l0x_update_8(dev, MSRC_CONFIG_CONTROL, 0xfe, byte));
       break;
     case VL53L0X_CHECK_SIGNAL_RATE_PRE_RANGE:
-      uint8_t byte = (uint8_t)(!enabled << 4);
+      byte = (uint8_t)(!enabled << 4);
       ERR_CHECK(vl53l0x_update_8(dev, MSRC_CONFIG_CONTROL, 0xef, byte));
       break;
     default:
@@ -740,11 +739,11 @@ vl53l0x_err_t vl53l0x_get_limit_check_value(vl53l0x_handle_t dev, vl53l0x_check_
       // internal computation
       break;
     case VL53L0X_CHECK_SIGNAL_RATE_FINAL_RANGE:
-      ERR_CHECK(vl53l0x_read_16(dev, FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT, &device_value));
+      ERR_CHECK(vl53l0x_read_32(dev, FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT, &device_value));
       break;
     case VL53L0X_CHECK_SIGNAL_RATE_MSRC:
     case VL53L0X_CHECK_SIGNAL_RATE_PRE_RANGE:
-      ERR_CHECK(vl53l0x_read_16(dev, PRE_RANGE_MIN_COUNT_RATE_RTN_LIMIT, &device_value));
+      ERR_CHECK(vl53l0x_read_32(dev, PRE_RANGE_MIN_COUNT_RATE_RTN_LIMIT, &device_value));
       break;
     default:
       return VL53L0X_ERR_INVALID_PARAMS;
@@ -883,6 +882,57 @@ vl53l0x_err_t vl53l0x_check_load_interrupt_settings(vl53l0x_handle_t dev, uint8_
         ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
       }
     }
+  }
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_start_meas(vl53l0x_handle_t dev) {
+  vl53l0x_dev_mode_t mode;
+  ERR_CHECK(vl53l0x_get_dev_mode(dev, &mode));
+
+  ERR_CHECK(vl53l0x_write_8(dev, 0x80, 0x01));
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
+  ERR_CHECK(vl53l0x_write_8(dev, 0x00, 0x00));
+  ERR_CHECK(vl53l0x_write_8(dev, 0x91, dev->data.stop_var));
+  ERR_CHECK(vl53l0x_write_8(dev, 0x00, 0x01));
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+  ERR_CHECK(vl53l0x_write_8(dev, 0x80, 0x00));
+
+  switch (mode) {
+    case VL53L0X_DEVMODE_SINGLE_RANGING:
+      ERR_CHECK(vl53l0x_write_8(dev, SYSRANGE_START, 0x01));
+      uint8_t byte = VL53L0X_SYSRANGE_MODE_START_STOP, loops = 0;
+
+      do {  // loop until start bit has been cleared
+        ERR_CHECK(vl53l0x_read_8(dev, SYSRANGE_START, &byte));
+        loops++;
+      } while ((byte & VL53L0X_SYSRANGE_MODE_START_STOP) == VL53L0X_SYSRANGE_MODE_START_STOP &&
+               loops < VL53L0X_MAX_LOOPS);
+
+      if (loops >= VL53L0X_MAX_LOOPS) return VL53L0X_ERR_TIMEOUT;
+      break;
+    case VL53L0X_DEVMODE_CONTINUOUS_RANGING:
+      // back-to-back
+      // check wether we need to apply interrupt settings
+      ERR_CHECK(vl53l0x_check_load_interrupt_settings(dev, true));
+
+      ERR_CHECK(vl53l0x_write_8(dev, SYSRANGE_START, VL53L0X_SYSRANGE_MODE_BACKTOBACK));
+
+      dev->data.pal_state = VL53L0X_STATE_RUNNING;
+      break;
+    case VL53L0X_DEVMODE_CONTINUOUS_TIMED_RANGING:
+      // continuous mode
+      // check wether we need to apply interrupt settings
+      ERR_CHECK(vl53l0x_check_load_interrupt_settings(dev, true));
+
+      ERR_CHECK(vl53l0x_write_8(dev, SYSRANGE_START, VL53L0X_SYSRANGE_MODE_TIMED));
+
+      dev->data.pal_state = VL53L0X_STATE_RUNNING;
+      break;
+    default:
+      // mode not supported
+      return VL53L0X_ERR_MODE_NOT_SUPPORTED;
   }
 
   return VL53L0X_OK;
