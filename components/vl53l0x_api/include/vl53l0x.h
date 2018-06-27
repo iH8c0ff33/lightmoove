@@ -112,7 +112,6 @@ vl53l0x_err_t vl53l0x_start_meas(vl53l0x_handle_t dev);
 vl53l0x_err_t vl53l0x_stop_meas(vl53l0x_handle_t dev);
 
 vl53l0x_err_t vl53l0x_get_meas_data_ready(vl53l0x_handle_t dev, bool* ready);
-vl53l0x_err_t vl53l0x_wait_dev_ready_for_new_meas(vl53l0x_handle_t dev, uint32_t max_loop);
 
 vl53l0x_err_t vl53l0x_get_meas_ref_signal(vl53l0x_handle_t dev, fp1616_t* signal);
 vl53l0x_err_t vl53l0x_get_ranging_meas_data(vl53l0x_handle_t             dev,
