@@ -1030,3 +1030,270 @@ vl53l0x_err_t vl53l0x_get_ranging_meas_data(vl53l0x_handle_t             dev,
 
   return VL53L0X_OK;
 }
+
+vl53l0x_err_t vl53l0x_get_meas_ref_signal(vl53l0x_handle_t dev, fp1616_t* signal) {
+  *signal = dev->data.last_signal_ref_mcps;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_perform_single_ranging_meas(vl53l0x_handle_t             dev,
+                                                  vl53l0x_ranging_meas_data_t* data) {
+  // fix the mode
+  ERR_CHECK(vl53l0x_set_dev_mode(dev, VL53L0X_DEVMODE_SINGLE_RANGING));
+
+  ERR_CHECK(vl53l0x_perform_single_meas(dev));
+  ERR_CHECK(vl53l0x_get_ranging_meas_data(dev, data));
+
+  ERR_CHECK(vl53l0x_clear_interrupt_mask(dev, 0));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_set_roi_zones_number(vl53l0x_handle_t dev, uint8_t number) {
+  if (number != 1) return VL53L0X_ERR_INVALID_PARAMS;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_roi_zones_number(vl53l0x_handle_t dev, uint8_t* number) {
+  *number = 1;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_max_roi_zones_number(vl53l0x_handle_t dev, uint8_t* number) {
+  *number = 1;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_set_gpio_config(vl53l0x_handle_t dev, uint8_t pin,
+                                      vl53l0x_dev_mode_t dev_mode, vl53l0x_gpio_func_t func,
+                                      vl53l0x_interrupt_polarity_t polarity) {
+  if (pin != 0) return VL53L0X_ERR_GPIO_NOT_EXISTING;
+
+  uint8_t byte;
+  if (dev_mode == VL53L0X_DEVMODE_GPIO_DRIVE) {
+    byte = polarity == VL53L0X_INTERRUPT_POLARITY_LOW ? 0x10 : 1;
+    ERR_CHECK(vl53l0x_write_8(dev, GPIO_HV_MUX_ACTIVE_HIGH, byte));
+  } else if (dev_mode == VL53L0X_DEVMODE_GPIO_OSC) {
+    ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
+    ERR_CHECK(vl53l0x_write_8(dev, 0x00, 0x00));
+
+    ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+    ERR_CHECK(vl53l0x_write_8(dev, 0x80, 0x01));
+    ERR_CHECK(vl53l0x_write_8(dev, 0x85, 0x02));
+
+    ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x04));
+    ERR_CHECK(vl53l0x_write_8(dev, 0xcd, 0x00));
+    ERR_CHECK(vl53l0x_write_8(dev, 0xcc, 0x11));
+
+    ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x07));
+    ERR_CHECK(vl53l0x_write_8(dev, 0xbe, 0x00));
+
+    ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x06));
+    ERR_CHECK(vl53l0x_write_8(dev, 0xcc, 0x09));
+
+    ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+    ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
+    ERR_CHECK(vl53l0x_write_8(dev, 0x00, 0x00));
+  } else {
+    switch (func) {
+      case VL53L0X_GPIOFUNC_OFF:
+        byte = 0x00;
+        break;
+      case VL53L0X_GPIOFUNC_THRESHOLD_CROSS_LOW:
+        byte = 0x01;
+        break;
+      case VL53L0X_GPIOFUNC_THRESHOLD_CROSS_HIGH:
+        byte = 0x02;
+        break;
+      case VL53L0X_GPIOFUNC_THRESHOLD_CROSS_OUT:
+        byte = 0x04;
+        break;
+      default:
+        return VL53L0X_ERR_GPIO_FUNCTIONALITY_NOT_SUPPORTED;
+    }
+
+    ERR_CHECK(vl53l0x_write_8(dev, SYSTEM_INTERRUPT_CONFIG_GPIO, byte));
+    byte = polarity == VL53L0X_INTERRUPT_POLARITY_LOW ? 0 : (uint8_t)(1 << 4);
+    ERR_CHECK(vl53l0x_update_8(dev, GPIO_HV_MUX_ACTIVE_HIGH, 0xef, byte));
+
+    dev->data.dev_spec_params.pin_0_gpio_func = func;
+
+    ERR_CHECK(vl53l0x_clear_interrupt_mask(dev, 0));
+  }
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_gpio_config(vl53l0x_handle_t dev, uint8_t pin,
+                                      vl53l0x_dev_mode_t* dev_mode, vl53l0x_gpio_func_t* func,
+                                      vl53l0x_interrupt_polarity_t* polarity) {
+  ERR_CHECK(vl53l0x_get_dev_mode(dev, dev_mode));
+
+  if (pin != 0) return VL53L0X_ERR_GPIO_NOT_EXISTING;
+  uint8_t byte;
+  ERR_CHECK(vl53l0x_read_8(dev, SYSTEM_INTERRUPT_CONFIG_GPIO, &byte));
+
+  switch (byte & 0x07) {
+    case 0x00:
+      *func = VL53L0X_GPIOFUNC_OFF;
+      break;
+    case 0x01:
+      *func = VL53L0X_GPIOFUNC_THRESHOLD_CROSS_LOW;
+      break;
+    case 0x02:
+      *func = VL53L0X_GPIOFUNC_THRESHOLD_CROSS_HIGH;
+      break;
+    case 0x03:
+      *func = VL53L0X_GPIOFUNC_THRESHOLD_CROSS_OUT;
+      break;
+    case 0x04:
+      *func = VL53L0X_GPIOFUNC_NEW_MEAS_READY;
+      break;
+    default:
+      return VL53L0X_ERR_GPIO_FUNCTIONALITY_NOT_SUPPORTED;
+  }
+
+  ERR_CHECK(vl53l0x_read_8(dev, GPIO_HV_MUX_ACTIVE_HIGH, &byte));
+
+  *polarity = ((byte & (uint8_t)(1 << 4)) == 0) ? VL53L0X_INTERRUPT_POLARITY_LOW
+                                                : VL53L0X_INTERRUPT_POLARITY_HIGH;
+
+  dev->data.dev_spec_params.pin_0_gpio_func = *func;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_set_interrupt_threshold(vl53l0x_handle_t dev, vl53l0x_dev_mode_t mode,
+                                              fp1616_t threshold_low, fp1616_t threshold_high) {
+  // divide by 2 because FW will apply x2
+  uint16_t thresh = (uint16_t)((threshold_low >> 17) & 0x00fff);
+  ERR_CHECK(vl53l0x_write_16(dev, SYSTEM_THRESH_LOW, thresh));
+
+  thresh = (uint16_t)((threshold_high >> 17) & 0x00fff);
+  ERR_CHECK(vl53l0x_write_16(dev, SYSTEM_THRESH_HIGH, thresh));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_interrupt_threshold(vl53l0x_handle_t dev, vl53l0x_dev_mode_t mode,
+                                              fp1616_t* threshold_low, fp1616_t* threshold_high) {
+  uint16_t thresh;
+  ERR_CHECK(vl53l0x_read_16(dev, SYSTEM_THRESH_LOW, &thresh));
+  // need to multiply x2 because FW applied a x2
+  *threshold_low = (fp1616_t)((0x00fff & thresh) << 17);
+
+  ERR_CHECK(vl53l0x_read_16(dev, SYSTEM_THRESH_HIGH, &thresh));
+  *threshold_high = (fp1616_t)((0x00fff & thresh) << 17);
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_stop_completed_status(vl53l0x_handle_t dev, uint32_t* status) {
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
+
+  uint8_t byte;
+  ERR_CHECK(vl53l0x_read_8(dev, 0x04, &byte));
+
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+
+  *status = byte;
+
+  if (byte == 0) {
+    ERR_CHECK(vl53l0x_write_8(dev, 0x80, 0x01));
+    ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
+    ERR_CHECK(vl53l0x_write_8(dev, 0x00, 0x00));
+    ERR_CHECK(vl53l0x_write_8(dev, 0x91, dev->data.stop_var));
+    ERR_CHECK(vl53l0x_write_8(dev, 0x00, 0x01));
+    ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+    ERR_CHECK(vl53l0x_write_8(dev, 0x80, 0x00));
+  }
+
+  return VL53L0X_OK;
+}
+
+// PAL interrupt functions
+
+vl53l0x_err_t vl53l0x_clear_interrupt_mask(vl53l0x_handle_t dev, uint32_t mask) {
+  uint8_t byte, loops = 0;
+  do {
+    ERR_CHECK(vl53l0x_write_8(dev, SYSTEM_INTERRUPT_CLEAR, 0x01));
+    ERR_CHECK(vl53l0x_write_8(dev, SYSTEM_INTERRUPT_CLEAR, 0x00));
+    ERR_CHECK(vl53l0x_read_8(dev, RESULT_INTERRUPT_STATUS, &byte));
+    loops++;
+  } while ((byte & 0x07) != 0x00 && loops < 3);
+
+  if (loops >= 3) return VL53L0X_ERR_INTERRUPT_NOT_CLEARED;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_interrupt_mask_status(vl53l0x_handle_t dev, uint32_t* status) {
+  uint8_t byte;
+  ERR_CHECK(vl53l0x_read_8(dev, RESULT_INTERRUPT_STATUS, &byte));
+  *status = byte & 0x07;
+
+  if (byte & 0x18) return VL53L0X_ERR_RANGE_ERROR;
+
+  return VL53L0X_OK;
+}
+
+// group SPAD functions
+
+vl53l0x_err_t vl53l0x_set_spad_ambient_damper_threshold(vl53l0x_handle_t dev, uint16_t threshold) {
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
+  ERR_CHECK(vl53l0x_write_16(dev, 0x40, threshold));
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_spad_ambient_damper_threshold(vl53l0x_handle_t dev, uint16_t* threshold) {
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
+  ERR_CHECK(vl53l0x_read_16(dev, 0x40, threshold));
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_set_spad_ambient_damper_factor(vl53l0x_handle_t dev, uint16_t factor) {
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
+  ERR_CHECK(vl53l0x_write_8(dev, 0x42, factor & 0x00ff));
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_spad_ambient_damper_factor(vl53l0x_handle_t dev, uint16_t* factor) {
+  uint8_t byte;
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
+  ERR_CHECK(vl53l0x_read_8(dev, 0x42, &byte));
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+  *factor = (uint16_t)byte;
+
+  return VL53L0X_OK;
+}
+
+// internal functions
+
+vl53l0x_err_t vl53l0x_set_ref_spads(vl53l0x_handle_t dev, uint32_t count, bool aperture) {
+  ERR_CHECK(_vl53l0x_set_ref_spads(dev, count, aperture));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_ref_spads(vl53l0x_handle_t dev, uint32_t* count, bool* aperture) {
+  ERR_CHECK(_vl53l0x_get_ref_spads(dev, count, aperture));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_perform_ref_spad_management(vl53l0x_handle_t dev, uint32_t* count,
+                                                  bool* aperture) {
+  ERR_CHECK(_vl53l0x_perform_ref_spad_management(dev, count, aperture));
+
+  return VL53L0X_OK;
+}
