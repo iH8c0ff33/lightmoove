@@ -116,12 +116,9 @@ vl53l0x_err_t vl53l0x_get_meas_data_ready(vl53l0x_handle_t dev, bool* ready);
 vl53l0x_err_t vl53l0x_get_meas_ref_signal(vl53l0x_handle_t dev, fp1616_t* signal);
 vl53l0x_err_t vl53l0x_get_ranging_meas_data(vl53l0x_handle_t             dev,
                                             vl53l0x_ranging_meas_data_t* data);
-vl53l0x_err_t vl53l0x_get_hist_meas_data(vl53l0x_handle_t dev, vl53l0x_hist_meas_data_t* data);
 
 vl53l0x_err_t vl53l0x_perform_single_ranging_meas(vl53l0x_handle_t             dev,
                                                   vl53l0x_ranging_meas_data_t* data);
-vl53l0x_err_t vl53l0x_perform_single_hist_meas(vl53l0x_handle_t          dev,
-                                               vl53l0x_hist_meas_data_t* data);
 
 vl53l0x_err_t vl53l0x_set_roi_zones_number(vl53l0x_handle_t dev, uint8_t number);
 vl53l0x_err_t vl53l0x_get_roi_zones_number(vl53l0x_handle_t dev, uint8_t* number);
@@ -142,7 +139,6 @@ vl53l0x_err_t vl53l0x_get_stop_completed_status(vl53l0x_handle_t dev, uint32_t* 
 
 vl53l0x_err_t vl53l0x_clear_interrupt_mask(vl53l0x_handle_t dev, uint32_t mask);
 vl53l0x_err_t vl53l0x_get_interrupt_mask_status(vl53l0x_handle_t dev, uint32_t* status);
-vl53l0x_err_t vl53l0x_enable_interrupt_mask(vl53l0x_handle_t dev, uint32_t mask);
 
 vl53l0x_err_t vl53l0x_set_spad_ambient_damper_threshold(vl53l0x_handle_t dev, uint16_t threshold);
 vl53l0x_err_t vl53l0x_get_spad_ambient_damper_threshold(vl53l0x_handle_t dev, uint16_t* threshold);
