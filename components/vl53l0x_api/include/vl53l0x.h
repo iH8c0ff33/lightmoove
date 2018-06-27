@@ -23,10 +23,6 @@ vl53l0x_err_t vl53l0x_get_offset_calibration_data_um(vl53l0x_handle_t dev, int32
 vl53l0x_err_t vl53l0x_set_lin_correct_gain(vl53l0x_handle_t dev, int16_t gain);
 vl53l0x_err_t vl53l0x_get_lin_correct_gain(vl53l0x_handle_t dev, uint16_t* gain);
 
-vl53l0x_err_t vl53l0x_set_group_param_hold(vl53l0x_handle_t dev, uint8_t hold);
-
-vl53l0x_err_t vl53l0x_get_upper_limit_mm(vl53l0x_handle_t dev, uint16_t* limit);
-
 vl53l0x_err_t vl53l0x_get_total_signal_rate(vl53l0x_handle_t dev, fp1616_t* rate);
 
 vl53l0x_err_t vl53l0x_set_dev_addr(vl53l0x_handle_t dev, uint8_t address);
@@ -52,9 +48,6 @@ vl53l0x_err_t vl53l0x_get_dev_mode(vl53l0x_handle_t dev, vl53l0x_dev_mode_t* mod
 
 vl53l0x_err_t vl53l0x_set_range_fraction_enable(vl53l0x_handle_t dev, bool enable);
 vl53l0x_err_t vl53l0x_get_range_fraction_enable(vl53l0x_handle_t dev, bool* enable);
-
-vl53l0x_err_t vl53l0x_set_hist_mode(vl53l0x_handle_t dev, vl53l0x_hist_mode_t mode);
-vl53l0x_err_t vl53l0x_get_hist_mode(vl53l0x_handle_t dev, vl53l0x_hist_mode_t* mode);
 
 vl53l0x_err_t vl53l0x_set_meas_timing_budget_us(vl53l0x_handle_t dev, uint32_t budget);
 vl53l0x_err_t vl53l0x_get_meas_timing_budget_us(vl53l0x_handle_t dev, uint32_t* budget);
@@ -111,8 +104,6 @@ vl53l0x_err_t vl53l0x_get_dmax_cal_params(vl53l0x_handle_t dev, uint16_t* range_
 vl53l0x_err_t vl53l0x_perform_single_meas(vl53l0x_handle_t dev);
 vl53l0x_err_t vl53l0x_perform_ref_calibration(vl53l0x_handle_t dev, uint8_t* vhv_settings,
                                               uint8_t* phase_cal);
-vl53l0x_err_t vl53l0x_perform_xtalk_meas(vl53l0x_handle_t dev, uint32_t timeout_ms,
-                                         fp1616_t* xtalk_per_spad, bool* ambient_too_high);
 vl53l0x_err_t vl53l0x_perform_xtalk_calibration(vl53l0x_handle_t dev, fp1616_t xtalk_cal_distance,
                                                 fp1616_t* xtalk_compensation_rate_mcps);
 vl53l0x_err_t vl53l0x_perform_offset_calibration(vl53l0x_handle_t dev, fp1616_t cal_dist_mm,
