@@ -18,7 +18,7 @@ vl53l0x_err_t vl53l0x_reverse_bytes(uint8_t* data, uint32_t size) {
 
 vl53l0x_err_t vl53l0x_meas_poll_for_completion(vl53l0x_handle_t dev) {
   bool    ready;
-  uint8_t loops;
+  uint8_t loops = 0;
   do {
     ERR_CHECK(vl53l0x_get_meas_data_ready(dev, &ready));
     ERR_CHECK(vl53l0x_polling_delay(dev));
@@ -86,7 +86,9 @@ vl53l0x_err_t vl53l0x_get_info_from_dev(vl53l0x_handle_t dev, uint8_t option) {
   int16_t  offset_um;
   uint32_t offset_fixed_1104_mm = 0;
 
-  if (dev->data.dev_spec_params.read_from_dev_done != 7) {
+  // if all three data has been read skip everything
+  if (dev->data.dev_spec_params.read_from_dev_done != 0b111) {
+    // this has to run for every data readout
     ERR_CHECK(vl53l0x_write_8(dev, 0x80, 0x01));
     ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
     ERR_CHECK(vl53l0x_write_8(dev, 0x00, 0x00));
@@ -100,7 +102,10 @@ vl53l0x_err_t vl53l0x_get_info_from_dev(vl53l0x_handle_t dev, uint8_t option) {
 
     ERR_CHECK(vl53l0x_write_8(dev, 0x80, 0x01));
 
-    if ((option & 1) == 1 && (dev->data.dev_spec_params.read_from_dev_done & 1) == 0) {
+    // if option has set 0b001 and it has not been read already
+    if ((dev->data.dev_spec_params.read_from_dev_done & 0b001) == 1 &&  //
+        (option & 0b001) == 1) {
+      // begin read data
       ERR_CHECK(vl53l0x_write_8(dev, 0x94, 0x6b));
       ERR_CHECK(vl53l0x_device_read_strobe(dev));
       uint32_t dword;
@@ -124,9 +129,22 @@ vl53l0x_err_t vl53l0x_get_info_from_dev(vl53l0x_handle_t dev, uint8_t option) {
 
       nvm_ref_good_spad_map[4] = (dword >> 24) & 0xff;
       nvm_ref_good_spad_map[5] = (dword >> 16) & 0xff;
+      // end read data
+
+      // begin assign data
+      dev->data.dev_spec_params.ref_spad_count    = ref_spad_count;
+      dev->data.dev_spec_params.ref_spad_aperture = ref_spad_type;
+
+      for (uint8_t i = 0; i < VL53L0X_REF_SPAD_BUFFER_SIZE; i++) {
+        dev->data.spad_data.ref_good_spad_map[i] = nvm_ref_good_spad_map[i];
+      }
+      // end assign data
     }
 
-    if ((option & 2) == 2 && (dev->data.dev_spec_params.read_from_dev_done & 2) == 0) {
+    // if option has set 0b010 and it has not been read already
+    if ((dev->data.dev_spec_params.read_from_dev_done & 0b010) == 1 &&  //
+        (option & 0b010) == 1) {
+      // begin read data
       ERR_CHECK(vl53l0x_write_8(dev, 0x94, 0x02));
       ERR_CHECK(vl53l0x_device_read_strobe(dev));
       ERR_CHECK(vl53l0x_read_8(dev, 0x90, &module_id));
@@ -179,9 +197,19 @@ vl53l0x_err_t vl53l0x_get_info_from_dev(vl53l0x_handle_t dev, uint8_t option) {
       product_id[14] = (dword >> 9) & 0x7f;
       product_id[14] = (dword >> 2) & 0x7f;
       product_id[18] = '\0';
+      // end read data
+
+      // begin assign data
+      dev->data.dev_spec_params.module_id = module_id;
+      dev->data.dev_spec_params.revision  = revision;
+      VL53L0X_COPYSTRING(dev->data.dev_spec_params.product_id, product_id);
+      // end assign data
     }
 
-    if ((option & 4) == 4 && (dev->data.dev_spec_params.read_from_dev_done & 4) == 0) {
+    // if option has set 0b100 and is had not been read already
+    if ((dev->data.dev_spec_params.read_from_dev_done & 0b100) == 1 &&  //
+        (option & 0b100) == 1) {
+      // begin read data
       ERR_CHECK(vl53l0x_write_8(dev, 0x94, 0x7b));
       ERR_CHECK(vl53l0x_device_read_strobe(dev));
       ERR_CHECK(vl53l0x_read_32(dev, 0x90, &part_id_upper));
@@ -214,36 +242,9 @@ vl53l0x_err_t vl53l0x_get_info_from_dev(vl53l0x_handle_t dev, uint8_t option) {
       ERR_CHECK(vl53l0x_read_32(dev, 0x90, &dword));
 
       dist_meas_fixed_1104_400_mm |= (dword & 0xff000000) >> 24;
-    }
+      // end read data
 
-    ERR_CHECK(vl53l0x_write_8(dev, 0x81, 0x00));
-    ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x06));
-    ERR_CHECK(vl53l0x_update_8(dev, 0x83, 0xfb, 0x00));
-    ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
-    ERR_CHECK(vl53l0x_write_8(dev, 0x00, 0x01));
-
-    ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
-    ERR_CHECK(vl53l0x_write_8(dev, 0x80, 0x00));
-  }
-
-  if (dev->data.dev_spec_params.read_from_dev_done != 7) {
-    // assign to variables
-    if ((option & 1) == 1 && (dev->data.dev_spec_params.read_from_dev_done & 1) == 0) {
-      dev->data.dev_spec_params.ref_spad_count    = ref_spad_count;
-      dev->data.dev_spec_params.ref_spad_aperture = ref_spad_type;
-
-      for (uint8_t i = 0; i < VL53L0X_REF_SPAD_BUFFER_SIZE; i++) {
-        dev->data.spad_data.ref_good_spad_map[i] = nvm_ref_good_spad_map[i];
-      }
-    }
-
-    if ((option & 2) == 2 && (dev->data.dev_spec_params.read_from_dev_done & 2) == 0) {
-      dev->data.dev_spec_params.module_id = module_id;
-      dev->data.dev_spec_params.revision  = revision;
-      VL53L0X_COPYSTRING(dev->data.dev_spec_params.product_id, product_id);
-    }
-
-    if ((option & 4) == 4 && (dev->data.dev_spec_params.read_from_dev_done & 4) == 0) {
+      // begin assign data
       dev->data.dev_spec_params.part_uid_up = part_id_upper;
       dev->data.dev_spec_params.part_uid_lo = part_id_lower;
 
@@ -258,10 +259,22 @@ vl53l0x_err_t vl53l0x_get_info_from_dev(vl53l0x_handle_t dev, uint8_t option) {
       }
 
       dev->data.part2_part_offset_adj_nvm_um = offset_um;
+      // end assign data
     }
-
-    dev->data.dev_spec_params.read_from_dev_done |= option;
   }
+
+  // check new read bits in read_done
+  dev->data.dev_spec_params.read_from_dev_done |= option;
+
+  // this had to be done after every data readout
+  ERR_CHECK(vl53l0x_write_8(dev, 0x81, 0x00));
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x06));
+  ERR_CHECK(vl53l0x_update_8(dev, 0x83, 0xfb, 0x00));
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
+  ERR_CHECK(vl53l0x_write_8(dev, 0x00, 0x01));
+
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+  ERR_CHECK(vl53l0x_write_8(dev, 0x80, 0x00));
 
   return VL53L0X_OK;
 }
@@ -280,7 +293,7 @@ uint16_t vl53l0x_encode_timeout(uint32_t macro_clks) {
   if (macro_clks > 0) {
     lsb = macro_clks - 1;
 
-    while (lsb & 0xffffff00 > 0) {
+    while ((lsb & 0xffffff00) > 0) {
       lsb >>= 1;
       msb++;
     }
