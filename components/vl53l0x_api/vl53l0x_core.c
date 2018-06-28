@@ -613,3 +613,126 @@ vl53l0x_err_t _vl53l0x_get_vcsel_pulse_period(vl53l0x_handle_t            dev,
 
   return VL53L0X_OK;
 }
+
+vl53l0x_err_t _vl53l0x_set_meas_timing_budget_us(vl53l0x_handle_t dev, uint32_t budget) {
+  uint32_t final_range_timing_budget_us;
+
+  uint32_t msrc_dcc_tcc_timeout_us = 2000;
+  uint32_t start_overhead_us       = 1320;
+  uint32_t end_overhead_us         = 960;
+  uint32_t msrc_overhead_us        = 660;
+  uint32_t tcc_overhead_us         = 590;
+  uint32_t dss_overhead_us         = 690;
+  uint32_t pre_range_overhead_us   = 660;
+  uint32_t final_range_overhead_us = 550;
+  uint32_t pre_range_timeout_us    = 0;
+
+  uint32_t min_timing_budget_us = 20000;
+  uint32_t sub_timeout          = 0;
+
+  if (budget < min_timing_budget_us) return VL53L0X_ERR_INVALID_PARAMS;
+
+  // substract mandatory phases overhead
+  final_range_timing_budget_us = budget - (start_overhead_us + end_overhead_us);
+
+  // get enabled steps
+  vl53l0x_seq_steps_t steps;
+  ERR_CHECK(vl53l0x_get_seq_steps(dev, &steps));
+
+  if (steps.tcc || steps.msrc || steps.dss) {
+    // TCC, MSRC and DSS use the same timeout
+    ERR_CHECK(_vl53l0x_get_seq_step_timeout(dev, VL53L0X_SEQSTEP_MSRC, &msrc_dcc_tcc_timeout_us));
+
+    if (steps.tcc) {
+      sub_timeout = msrc_dcc_tcc_timeout_us + tcc_overhead_us;
+
+      // requested timeout too big
+      if (sub_timeout >= final_range_timing_budget_us) return VL53L0X_ERR_INVALID_PARAMS;
+      final_range_timing_budget_us -= sub_timeout;
+    }
+
+    if (steps.dss) {
+      sub_timeout = 2 * (msrc_dcc_tcc_timeout_us + dss_overhead_us);
+
+      if (sub_timeout >= final_range_timing_budget_us) return VL53L0X_ERR_INVALID_PARAMS;
+      final_range_timing_budget_us -= sub_timeout;
+    } else if (steps.msrc) {
+      sub_timeout = msrc_dcc_tcc_timeout_us + msrc_overhead_us;
+
+      if (sub_timeout >= final_range_timing_budget_us) return VL53L0X_ERR_INVALID_PARAMS;
+      final_range_timing_budget_us -= sub_timeout;
+    }
+  }
+
+  if (steps.pre_range) {
+    ERR_CHECK(_vl53l0x_get_seq_step_timeout(dev, VL53L0X_SEQSTEP_PRE_RANGE, &pre_range_timeout_us));
+
+    sub_timeout = pre_range_timeout_us + pre_range_overhead_us;
+
+    if (sub_timeout >= final_range_timing_budget_us) return VL53L0X_ERR_INVALID_PARAMS;
+    final_range_timing_budget_us -= sub_timeout;
+  }
+
+  if (steps.final_range) {
+    /* NOTE: the final range timeout is determined now as the remaining time
+     * after all the other timeouts/overheads.
+     * WARN: If there is no room for final range timeout and error will be
+     * thrown, otherwise the remaining time will be used as final range
+     * timeout. */
+    final_range_timing_budget_us -= final_range_overhead_us;
+
+    ERR_CHECK(_vl53l0x_set_seq_step_timeout(dev, VL53L0X_SEQSTEP_FINAL_RANGE,
+                                            final_range_timing_budget_us));
+    dev->data.current_params.meas_timing_budget_us = budget;
+  }
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t _vl53l0x_get_meas_timing_budget_us(vl53l0x_handle_t dev, uint32_t* budget) {
+  uint32_t msrc_dcc_tcc_timeout_us = 2000;
+  uint32_t start_overhead_us       = 1910;
+  uint32_t end_overhead_us         = 960;
+  uint32_t msrc_overhead_us        = 660;
+  uint32_t tcc_overhead_us         = 590;
+  uint32_t dss_overhead_us         = 690;
+  uint32_t pre_range_overhead_us   = 660;
+  uint32_t final_range_overhead_us = 550;
+
+  uint32_t final_range_timeout_us;
+  uint32_t pre_range_timeout_us;
+
+  // start and end overhead are always present
+  *budget = start_overhead_us + end_overhead_us;
+
+  vl53l0x_seq_steps_t steps;
+  ERR_CHECK(vl53l0x_get_seq_steps(dev, &steps));
+
+  if (steps.tcc || steps.msrc || steps.dss) {
+    ERR_CHECK(_vl53l0x_get_seq_step_timeout(dev, VL53L0X_SEQSTEP_MSRC, &msrc_dcc_tcc_timeout_us));
+
+    if (steps.tcc) *budget += msrc_dcc_tcc_timeout_us + tcc_overhead_us;
+
+    if (steps.dss)
+      *budget += 2 * (msrc_dcc_tcc_timeout_us + dss_overhead_us);
+    else if (steps.msrc)
+      *budget += msrc_dcc_tcc_timeout_us + msrc_overhead_us;
+  }
+
+  if (steps.pre_range) {
+    ERR_CHECK(_vl53l0x_get_seq_step_timeout(dev, VL53L0X_SEQSTEP_PRE_RANGE, &pre_range_timeout_us));
+
+    *budget += pre_range_timeout_us + pre_range_overhead_us;
+  }
+
+  if (steps.final_range) {
+    ERR_CHECK(
+        _vl53l0x_get_seq_step_timeout(dev, VL53L0X_SEQSTEP_FINAL_RANGE, &final_range_timeout_us));
+
+    *budget += final_range_timeout_us + final_range_overhead_us;
+  }
+
+  dev->data.current_params.meas_timing_budget_us = *budget;
+
+  return VL53L0X_OK;
+}
