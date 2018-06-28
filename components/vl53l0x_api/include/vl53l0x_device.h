@@ -134,4 +134,7 @@ typedef enum reg {
   ALGO_PHASECAL_CONFIG_TIMEOUT = 0x30,
 } vl53l0x_reg_t;
 
+// in um / 1e-10 s
+#define VL53L0X_SPEED_OF_LIGHT_IN_AIR 2997
+
 #endif  // _VL53L0X_DEVICE_H
