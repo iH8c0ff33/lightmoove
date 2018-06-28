@@ -306,3 +306,72 @@ uint32_t calc_timeout_us(uint16_t timeout_period_mclks, uint8_t vcsel_period_pck
 
   return ((timeout_period_mclks * macro_period_ps) + (macro_period_ps / 2)) / 1000;
 }
+
+vl53l0x_err_t _vl53l0x_get_seq_step_timeout(vl53l0x_handle_t dev, vl53l0x_seq_step_t step,
+                                            uint32_t* timeout_us) {
+  if (step >= VL53L0X_SEQ_STEP_CHECKS_NUMBER) return VL53L0X_ERR_INVALID_PARAMS;
+
+  uint8_t  vcsel_pulse_period_pclk;
+  uint16_t msrc_timeout_mclks, pre_range_timeout_mclks, final_range_timeout_mclks;
+
+  vl53l0x_seq_steps_t seq_steps;
+
+  uint8_t  byte;
+  uint16_t word;
+
+  switch (step) {
+    case VL53L0X_SEQSTEP_TCC:
+    case VL53L0X_SEQSTEP_DSS:
+    case VL53L0X_SEQSTEP_MSRC:
+      ERR_CHECK(vl53l0x_get_vcsel_pulse_period(dev, VL53L0X_VCSEL_PERIOD_PRE_RANGE,
+                                               &vcsel_pulse_period_pclk));
+      ERR_CHECK(vl53l0x_read_8(dev, MSRC_CONFIG_TIMEOUT_MACROP, &byte));
+      msrc_timeout_mclks = vl53l0x_decode_timeout(byte);
+
+      *timeout_us = calc_timeout_us(msrc_timeout_mclks, vcsel_pulse_period_pclk);
+      break;
+    case VL53L0X_SEQSTEP_PRE_RANGE:
+      // retrieve PRE-RANGE VCSEL period
+      ERR_CHECK(vl53l0x_get_vcsel_pulse_period(dev, VL53L0X_VCSEL_PERIOD_PRE_RANGE,
+                                               &vcsel_pulse_period_pclk));
+
+      // retrieve PRE-RANGE timeout in macro periods
+      ERR_CHECK(vl53l0x_read_16(dev, PRE_RANGE_CONFIG_TIMEOUT_MACROP_HI, &word));
+      pre_range_timeout_mclks = vl53l0x_decode_timeout(word);
+
+      *timeout_us = calc_timeout_us(pre_range_timeout_mclks, vcsel_pulse_period_pclk);
+      break;
+    case VL53L0X_SEQSTEP_FINAL_RANGE:
+      ERR_CHECK(vl53l0x_get_seq_steps(dev, &seq_steps));
+
+      // substract 0 in case pre_range is not enabled
+      pre_range_timeout_mclks = 0;
+
+      if (seq_steps.pre_range) {
+        // TODO: is this needed?
+        // retrieve PRE-RANGE VCSEL period
+        ERR_CHECK(vl53l0x_get_vcsel_pulse_period(dev, VL53L0X_VCSEL_PERIOD_PRE_RANGE,
+                                                 &vcsel_pulse_period_pclk));
+
+        // retrieve PRE-RANGE timeout in macro periods
+        ERR_CHECK(vl53l0x_read_16(dev, PRE_RANGE_CONFIG_TIMEOUT_MACROP_HI, &word));
+        pre_range_timeout_mclks = vl53l0x_decode_timeout(word);
+      }
+
+      // retrieve FINAL-RANGE VCSEL period
+      ERR_CHECK(vl53l0x_get_vcsel_pulse_period(dev, VL53L0X_VCSEL_PERIOD_FINAL_RANGE,
+                                               &vcsel_pulse_period_pclk));
+
+      // retrieve FINAL-RANGE timeout in macro periods
+      ERR_CHECK(vl53l0x_read_16(dev, FINAL_RANGE_CONFIG_TIMEOUT_MACROP_HI, &word));
+      final_range_timeout_mclks = vl53l0x_decode_timeout(word);
+
+      final_range_timeout_mclks -= pre_range_timeout_mclks;
+      *timeout_us = calc_timeout_us(final_range_timeout_mclks, vcsel_pulse_period_pclk);
+      break;
+    default:
+      return VL53L0X_ERR_INVALID_PARAMS;
+  }
+
+  return VL53L0X_OK;
+}
