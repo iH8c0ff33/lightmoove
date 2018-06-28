@@ -736,3 +736,42 @@ vl53l0x_err_t _vl53l0x_get_meas_timing_budget_us(vl53l0x_handle_t dev, uint32_t*
 
   return VL53L0X_OK;
 }
+
+vl53l0x_err_t vl53l0x_load_tuning_settings(vl53l0x_handle_t dev, const uint8_t* buffer) {
+  size_t i = 0;
+  while (buffer[i] != 0xff && buffer[i + 1] != 0xff) {
+    ERR_CHECK(vl53l0x_write_8(dev, buffer[i], buffer[i + 1]));
+    i += 2;
+  }
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_get_total_xtalk_rate(vl53l0x_handle_t             dev,
+                                           vl53l0x_ranging_meas_data_t* meas_data,
+                                           fp1616_t*                    rate_mcps) {
+  bool enabled;
+  ERR_CHECK(vl53l0x_get_xtalk_comp(dev, &enabled));
+  if (enabled) {
+    fp1616_t total_xtalk_mcps =
+        meas_data->effective_spad_rtn_count * dev->data.current_params.xtalk_compensation_rate_mcps;
+
+    *rate_mcps = (total_xtalk_mcps + 0x80) >> 8;
+  } else
+    *rate_mcps = 0;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t _vl53l0x_get_total_signal_rate(vl53l0x_handle_t             dev,
+                                             vl53l0x_ranging_meas_data_t* meas_data,
+                                             fp1616_t*                    rate_mcps) {
+  *rate_mcps = meas_data->signal_rate_rtn_mcps;
+
+  fp1616_t total_xtalk_mcps;
+  ERR_CHECK(vl53l0x_get_total_xtalk_rate(dev, meas_data, &total_xtalk_mcps));
+
+  *rate_mcps += total_xtalk_mcps;
+
+  return VL53L0X_OK;
+}
