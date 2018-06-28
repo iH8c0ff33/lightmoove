@@ -1116,3 +1116,114 @@ vl53l0x_err_t vl53l0x_calc_sigma_estimate(vl53l0x_handle_t             dev,
 
   return VL53L0X_OK;
 }
+
+vl53l0x_err_t vl53l0x_get_pal_range_status(vl53l0x_handle_t dev, uint8_t dev_range_status,
+                                           fp1616_t signal_rate, uint16_t effective_spad_rtn_count,
+                                           vl53l0x_ranging_meas_data_t* meas_data,
+                                           uint8_t*                     pal_range_status) {
+  uint8_t dev_range_status_internal = (dev_range_status & 0x78) >> 3;
+
+  bool none_flag = (dev_range_status_internal == 0 || dev_range_status_internal == 5 ||
+                    dev_range_status_internal == 7 || dev_range_status_internal == 12 ||
+                    dev_range_status_internal == 13 || dev_range_status_internal == 14 ||
+                    dev_range_status_internal == 14 || dev_range_status_internal == 15);
+
+  // last signal ref mcps
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
+  uint16_t word;
+  ERR_CHECK(vl53l0x_read_16(dev, RESULT_PEAK_SIGNAL_RATE_REF, &word));
+  ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+
+  dev->data.last_signal_ref_mcps = VL53L0X_FP97_TO_FP1616(word);
+
+  bool sigma_enable;
+  ERR_CHECK(vl53l0x_get_limit_check(dev, VL53L0X_CHECK_SIGMA_FINAL_RANGE, &sigma_enable));
+
+  bool sigma_flag = false;
+
+  if (sigma_enable) {
+    // compute sigma and check with limit
+    fp1616_t sigma_est;
+    uint32_t dmax_mm;
+    ERR_CHECK(vl53l0x_calc_sigma_estimate(dev, meas_data, &sigma_est, &dmax_mm));
+    meas_data->range_dmax_mm = dmax_mm;
+
+    fp1616_t sigma_value;
+    ERR_CHECK(vl53l0x_get_limit_check_value(dev, VL53L0X_CHECK_SIGMA_FINAL_RANGE, &sigma_value));
+
+    if (sigma_value > 0 && sigma_est > sigma_value) sigma_flag = true;
+  }
+
+  bool signal_ref_clip_enable;
+  ERR_CHECK(vl53l0x_get_limit_check(dev, VL53L0X_CHECK_SIGNAL_REF_CLIP, &signal_ref_clip_enable));
+
+  bool signal_ref_clip_flag = false;
+
+  if (signal_ref_clip_enable) {
+    fp1616_t signal_ref_clip_value;
+    ERR_CHECK(
+        vl53l0x_get_limit_check_value(dev, VL53L0X_CHECK_SIGNAL_REF_CLIP, &signal_ref_clip_value));
+
+    if (signal_ref_clip_value > 0 && dev->data.last_signal_ref_mcps > signal_ref_clip_value)
+      signal_ref_clip_flag = true;
+  }
+
+  bool range_ignore_enable;
+  ERR_CHECK(
+      vl53l0x_get_limit_check(dev, VL53L0X_CHECK_RANGE_IGNORE_THRESHOLD, &range_ignore_enable));
+
+  bool range_ignore_threshold_flag = false;
+
+  if (range_ignore_enable) {
+    fp1616_t signal_rate_per_spad =
+        effective_spad_rtn_count == 0 ? 0
+                                      : (fp1616_t)((256 * signal_rate) / effective_spad_rtn_count);
+
+    fp1616_t range_ignore_value;
+    ERR_CHECK(vl53l0x_get_limit_check_value(dev, VL53L0X_CHECK_RANGE_IGNORE_THRESHOLD,
+                                            &range_ignore_value));
+
+    if (range_ignore_value > 0 && signal_rate_per_spad < range_ignore_value)
+      range_ignore_threshold_flag = true;
+  }
+
+  if (none_flag)
+    *pal_range_status = 255;  // NONE
+  else if (dev_range_status_internal == 1 || dev_range_status_internal == 2 ||
+           dev_range_status_internal == 3)
+    *pal_range_status = 5;  // HW fail
+  else if (dev_range_status_internal == 6 || dev_range_status_internal == 9)
+    *pal_range_status = 4;  // Phase fail
+  else if (dev_range_status_internal == 8 || dev_range_status_internal == 10 ||
+           signal_ref_clip_flag)
+    *pal_range_status = 3;  // Min range
+  else if (dev_range_status_internal == 4 || range_ignore_threshold_flag)
+    *pal_range_status = 2;  // Signal fail
+  else if (sigma_flag)
+    *pal_range_status = 1;  // Sigma fail
+  else
+    *pal_range_status = 0;  // Range valid
+
+  // remove DMAX value, not relevant if range is valid
+  if (*pal_range_status == 0) meas_data->range_dmax_mm = 0;
+
+  // fill limit check status
+
+  bool signal_rate_final_range_enable;
+  ERR_CHECK(vl53l0x_get_limit_check(dev, VL53L0X_CHECK_SIGNAL_RATE_FINAL_RANGE,
+                                    &signal_rate_final_range_enable));
+
+  dev->data.current_params.limit_checks_status[VL53L0X_CHECK_SIGMA_FINAL_RANGE] =
+      (!sigma_enable || sigma_flag);
+
+  dev->data.current_params.limit_checks_status[VL53L0X_CHECK_SIGNAL_RATE_FINAL_RANGE] =
+      (!signal_rate_final_range_enable || dev_range_status_internal == 4);
+
+  dev->data.current_params.limit_checks_status[VL53L0X_CHECK_SIGNAL_REF_CLIP] =
+      (!signal_ref_clip_enable || signal_ref_clip_flag);
+
+  dev->data.current_params.limit_checks_status[VL53L0X_CHECK_RANGE_IGNORE_THRESHOLD] =
+      (!range_ignore_enable || range_ignore_threshold_flag);
+
+  return VL53L0X_OK;
+}
