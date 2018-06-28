@@ -103,8 +103,8 @@ vl53l0x_err_t vl53l0x_get_info_from_dev(vl53l0x_handle_t dev, uint8_t option) {
     ERR_CHECK(vl53l0x_write_8(dev, 0x80, 0x01));
 
     // if option has set 0b001 and it has not been read already
-    if ((dev->data.dev_spec_params.read_from_dev_done & 0b001) == 1 &&  //
-        (option & 0b001) == 1) {
+    if ((dev->data.dev_spec_params.read_from_dev_done & 0b001) &&  //
+        (option & 0b001)) {
       // begin read data
       ERR_CHECK(vl53l0x_write_8(dev, 0x94, 0x6b));
       ERR_CHECK(vl53l0x_device_read_strobe(dev));
@@ -142,8 +142,8 @@ vl53l0x_err_t vl53l0x_get_info_from_dev(vl53l0x_handle_t dev, uint8_t option) {
     }
 
     // if option has set 0b010 and it has not been read already
-    if ((dev->data.dev_spec_params.read_from_dev_done & 0b010) == 1 &&  //
-        (option & 0b010) == 1) {
+    if ((dev->data.dev_spec_params.read_from_dev_done & 0b010) &&  //
+        (option & 0b010)) {
       // begin read data
       ERR_CHECK(vl53l0x_write_8(dev, 0x94, 0x02));
       ERR_CHECK(vl53l0x_device_read_strobe(dev));
@@ -207,8 +207,8 @@ vl53l0x_err_t vl53l0x_get_info_from_dev(vl53l0x_handle_t dev, uint8_t option) {
     }
 
     // if option has set 0b100 and is had not been read already
-    if ((dev->data.dev_spec_params.read_from_dev_done & 0b100) == 1 &&  //
-        (option & 0b100) == 1) {
+    if ((dev->data.dev_spec_params.read_from_dev_done & 0b100) &&  //
+        (option & 0b100)) {
       // begin read data
       ERR_CHECK(vl53l0x_write_8(dev, 0x94, 0x7b));
       ERR_CHECK(vl53l0x_device_read_strobe(dev));
@@ -472,11 +472,11 @@ vl53l0x_err_t _vl53l0x_set_vcsel_pulse_period(vl53l0x_handle_t            dev,
 
   if ((pclks % 2) != 0)  // WARN: must be even
     return VL53L0X_ERR_INVALID_PARAMS;
-  else if (type == VL53L0X_VCSEL_PERIOD_PRE_RANGE &&
-           (pclks < min_pre_vcsel_period_pclk || pclks > max_pre_vcsel_period_pclk))
+  if (type == VL53L0X_VCSEL_PERIOD_PRE_RANGE &&
+      (pclks < min_pre_vcsel_period_pclk || pclks > max_pre_vcsel_period_pclk))
     return VL53L0X_ERR_INVALID_PARAMS;
-  else if (type == VL53L0X_VCSEL_PERIOD_FINAL_RANGE &&
-           (pclks < min_final_vcsel_period_pclk || pclks > max_final_vcsel_period_pclk))
+  if (type == VL53L0X_VCSEL_PERIOD_FINAL_RANGE &&
+      (pclks < min_final_vcsel_period_pclk || pclks > max_final_vcsel_period_pclk))
     return VL53L0X_ERR_INVALID_PARAMS;
 
   if (type == VL53L0X_VCSEL_PERIOD_PRE_RANGE) {
@@ -592,6 +592,24 @@ vl53l0x_err_t _vl53l0x_set_vcsel_pulse_period(vl53l0x_handle_t            dev,
    * get_data = false, restore_config = true */
   uint8_t phase_cal = 0;
   ERR_CHECK(_vl53l0x_perform_phase_calibration(dev, &phase_cal, false, true));
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t _vl53l0x_get_vcsel_pulse_period(vl53l0x_handle_t            dev,
+                                              vl53l0x_vcsel_period_type_t type, uint8_t* pclks) {
+  uint8_t encoded_vcsel_period;
+
+  if (type != VL53L0X_VCSEL_PERIOD_PRE_RANGE && type != VL53L0X_VCSEL_PERIOD_FINAL_RANGE)
+    return VL53L0X_ERR_INVALID_PARAMS;
+
+  ERR_CHECK(vl53l0x_read_8(dev,
+                           type == VL53L0X_VCSEL_PERIOD_PRE_RANGE  //
+                               ? PRE_RANGE_CONFIG_VCSEL_PERIOD
+                               : FINAL_RANGE_CONFIG_VCSEL_PERIOD,
+                           &encoded_vcsel_period));
+
+  *pclks = vl53l0x_decode_vcsel_period(encoded_vcsel_period);
 
   return VL53L0X_OK;
 }
