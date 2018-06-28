@@ -202,7 +202,7 @@ vl53l0x_err_t vl53l0x_get_info_from_dev(vl53l0x_handle_t dev, uint8_t option) {
       // begin assign data
       dev->data.dev_spec_params.module_id = module_id;
       dev->data.dev_spec_params.revision  = revision;
-      VL53L0X_COPYSTRING(dev->data.dev_spec_params.product_id, product_id);
+      VL53L0X_COPYSTRING(dev->data.dev_spec_params.product_id, product_id, 19);
       // end assign data
     }
 
@@ -748,8 +748,8 @@ vl53l0x_err_t vl53l0x_load_tuning_settings(vl53l0x_handle_t dev, const uint8_t* 
 }
 
 vl53l0x_err_t _vl53l0x_get_total_xtalk_rate(vl53l0x_handle_t             dev,
-                                           vl53l0x_ranging_meas_data_t* meas_data,
-                                           fp1616_t*                    rate_mcps) {
+                                            vl53l0x_ranging_meas_data_t* meas_data,
+                                            fp1616_t*                    rate_mcps) {
   bool enabled;
   ERR_CHECK(vl53l0x_get_xtalk_comp(dev, &enabled));
   if (enabled) {
@@ -774,6 +774,345 @@ vl53l0x_err_t _vl53l0x_get_total_signal_rate(vl53l0x_handle_t             dev,
   ERR_CHECK(_vl53l0x_get_total_xtalk_rate(dev, meas_data, &total_xtalk_mcps));
 
   *rate_mcps += total_xtalk_mcps;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t _vl53l0x_calc_dmax(vl53l0x_handle_t dev,  //
+                                 fp1616_t         total_signal_rate_mcps,
+                                 fp1616_t total_corr_signal_rate_mcps, fp1616_t pw_mult,
+                                 uint32_t sigma_est_p1, fp1616_t sigma_est_p2,
+                                 uint32_t peak_vcsel_duration_us, uint32_t* dmax_mm) {
+  const uint32_t SIGMA_LIMIT                = 18;
+  const fp1616_t SIGNAL_LIMIT               = 0x4000;      // 0x25
+  const fp1616_t SIGMA_EST_REF              = 0x00000042;  // 0.001
+  const uint32_t AMB_EFF_WIDTH_SIGMA_EST_NS = 6;
+  const uint32_t AMB_EFF_WIDTH_DMAX_NS      = 7;
+
+  fp1616_t min_signal_needed;
+  fp1616_t min_signal_needed_p1;
+  fp1616_t min_signal_needed_p2;
+  fp1616_t min_signal_needed_p3;
+  fp1616_t min_signal_needed_p4;
+  fp1616_t sigma_limit_tmp;
+  fp1616_t sigma_est_sq_tmp;
+  fp1616_t signal_limit_tmp;
+  fp1616_t signal_at_0_mm;
+  fp1616_t dmax_dark;
+  fp1616_t dmax_ambient;
+  fp1616_t dmax_dark_tmp;
+  fp1616_t sigma_est_p2_tmp;
+
+  // u32 * fp1616 = fp1616
+  signal_at_0_mm = dev->data.dmax_cal_range_mm * dev->data.dmax_cal_signal_rate_rtn_mcps;
+
+  // fp1616 >> 8 = fp2408
+  signal_at_0_mm = (signal_at_0_mm + 0x80) >> 8;
+  signal_at_0_mm *= dev->data.dmax_cal_range_mm;
+
+  min_signal_needed_p1 = 0;
+  if (total_corr_signal_rate_mcps > 0) {
+    // shift by 10 bits to increase resolution before division
+    uint32_t signal_rate_tmp_mcps = total_signal_rate_mcps << 10;
+
+    // add rounding value prior to division
+    min_signal_needed_p1 = signal_rate_tmp_mcps + (total_corr_signal_rate_mcps / 2);
+
+    // fp0626/fp1616 = fp2210;
+    min_signal_needed_p1 /= total_corr_signal_rate_mcps;
+
+    // apply factored version of speed of light (correction at the end)
+    min_signal_needed_p1 *= 3;
+
+    // fp2210 * fp2210 = fp1220
+    min_signal_needed_p1 *= min_signal_needed_p1;
+
+    // fp1220 >> 16 = fp2804
+    min_signal_needed_p1 = (min_signal_needed_p1 + 0x8000) >> 16;
+  }
+
+  min_signal_needed_p2 = pw_mult * sigma_est_p1;
+
+  // fp1616 >> 16 = u32
+  min_signal_needed_p2 = (min_signal_needed_p2 + 0x8000) >> 16;
+
+  // u32*u32 = u32
+  min_signal_needed_p2 *= min_signal_needed_p2;
+
+  /* Check sigmaEstimateP2
+   * If this value is too high there is not enough signal rate
+   * to calculate dmax value so set a suitable value to ensure
+   * a very small dmax.
+   */
+  sigma_est_p2_tmp = (sigma_est_p2 + 0x8000) >> 16;
+  sigma_est_p2_tmp =
+      (sigma_est_p2_tmp + AMB_EFF_WIDTH_SIGMA_EST_NS / 2) / AMB_EFF_WIDTH_SIGMA_EST_NS;
+  sigma_est_p2_tmp *= AMB_EFF_WIDTH_DMAX_NS;
+
+  if (sigma_est_p2_tmp > 0xffff) {
+    min_signal_needed_p3 = 0xfff00000;
+  } else {
+    /* DMAX uses a different ambient width from sigma, so apply
+     * correction.
+     * Perform division before multiplication to prevent overflow.
+     */
+    sigma_est_p2 = (sigma_est_p2 + AMB_EFF_WIDTH_SIGMA_EST_NS / 2) / AMB_EFF_WIDTH_SIGMA_EST_NS;
+    sigma_est_p2 *= AMB_EFF_WIDTH_DMAX_NS;
+
+    // fp1616 >> 16 = u32
+    min_signal_needed_p3 = (sigma_est_p2 + 0x8000) >> 16;
+    min_signal_needed_p3 *= min_signal_needed_p3;
+  }
+
+  // fp1814 / u32 = fp1814
+  sigma_limit_tmp = ((SIGMA_LIMIT << 14) + 500) / 1000;
+
+  // fp1814 * fp1814 = fp3628 := fp0428
+  sigma_limit_tmp *= sigma_limit_tmp;
+
+  // fp1616 * fp1616 = fp3232
+  sigma_est_sq_tmp = SIGMA_EST_REF * SIGMA_EST_REF;
+
+  // fp3232 >> 4 = fp0428
+  sigma_est_sq_tmp = (sigma_est_sq_tmp + 0x08) >> 4;
+
+  // fp0428 - fp0428 = fp0428
+  sigma_limit_tmp -= sigma_est_sq_tmp;
+
+  // u32 * fp0428 = fp0428
+  min_signal_needed_p4 = 4 * 12 * sigma_limit_tmp;
+
+  // fp0428 >> 14 = fp1814
+  min_signal_needed_p4 = (min_signal_needed_p4 + 0x2000) > 14;
+
+  // u32 + u32 = u32
+  min_signal_needed = (min_signal_needed_p2 + min_signal_needed_p3);
+
+  // u32 / u32 = u32
+  min_signal_needed += (peak_vcsel_duration_us / 2);
+  min_signal_needed /= peak_vcsel_duration_us;
+
+  // u32 << 14 = fp1814
+  min_signal_needed <<= 14;
+
+  // fp1814 / fp1814 = u32
+  min_signal_needed += min_signal_needed_p4 / 2;
+  min_signal_needed /= min_signal_needed_p4;
+
+  // fp3200 * fp2804 := fp2804
+  min_signal_needed *= min_signal_needed_p1;
+
+  // apply corrections
+  min_signal_needed = (min_signal_needed + 500) / 1000;
+  min_signal_needed <<= 4;
+
+  min_signal_needed = (min_signal_needed + 500) / 1000;
+
+  // fp1616 >> 8 = fp2408
+  signal_limit_tmp = (SIGNAL_LIMIT + 0x80) >> 8;
+
+  // fp2408 / fp2408 = u32
+  if (signal_limit_tmp != 0)
+    dmax_dark_tmp = (signal_at_0_mm + (signal_limit_tmp / 2)) / signal_limit_tmp;
+  else
+    dmax_dark_tmp = 0;
+
+  dmax_dark = vl53l0x_isqrt(dmax_dark_tmp);
+
+  // fp2408 / fp2408 = u32
+  if (min_signal_needed != 0)
+    dmax_ambient = (signal_at_0_mm + min_signal_needed / 2) / min_signal_needed;
+  else
+    dmax_ambient = 0;
+
+  dmax_ambient = vl53l0x_isqrt(dmax_ambient);
+
+  *dmax_mm = dmax_dark > dmax_ambient ? dmax_ambient : dmax_dark;
+
+  return VL53L0X_OK;
+}
+
+vl53l0x_err_t vl53l0x_calc_sigma_estimate(vl53l0x_handle_t             dev,
+                                          vl53l0x_ranging_meas_data_t* meas_data,
+                                          fp1616_t* estimate, uint32_t* dmax_mm) {
+  const uint32_t PULSE_EFF_WIDTH_C_NS    = 800;
+  const uint32_t AMBIENT_EFF_WIDTH_C_NS  = 600;
+  const fp1616_t SIGMA_EST_REF           = 0x00000042;  // 0.001
+  const uint32_t VCSEL_PULSE_WIDTH_PS    = 4700;
+  const fp1616_t SIGMA_EST_MAX           = 0x028F87AE;
+  const fp1616_t SIGMA_EST_RTN_MAX       = 0xf000;
+  const fp1616_t AMB_TO_SIGNAL_RATIO_MAX = 0xf0000000 / AMBIENT_EFF_WIDTH_C_NS;
+  const fp1616_t TOF_PER_MM_PS           = 0x0006999a;  // 6.6 ps
+  const uint32_t ROUND_PARAM_16B         = 0x00008000;
+  const fp1616_t MAX_XTALK_KCPS          = 0x00320000;
+  const uint32_t PLL_PERIOD_PS           = 1655;
+
+  uint32_t vcsel_total_events_rtn;
+  fp1616_t sigma_est_p1;
+  fp1616_t sigma_est_p2;
+  fp1616_t sigma_est_p3;
+  fp1616_t deltaT_ps;
+  fp1616_t pw_mult;
+  fp1616_t sigma_est_rtn;
+  fp1616_t sigma_est;
+  fp1616_t xtalk_correction;
+  fp1616_t ambient_rate_kcps;
+  fp1616_t peak_signal_rate_kcps;
+  uint32_t xtalk_comp_rate_kcps;
+
+  ambient_rate_kcps = (meas_data->ambient_rate_rtn_mcps * 1000) >> 16;
+
+  fp1616_t corr_signal_rate_mcps = meas_data->signal_rate_rtn_mcps;
+  fp1616_t total_signal_rate_mcps;
+  ERR_CHECK(_vl53l0x_get_total_signal_rate(dev, meas_data, &total_signal_rate_mcps));
+  fp1616_t xtalk_comp_rate_mcps;
+  ERR_CHECK(_vl53l0x_get_total_xtalk_rate(dev, meas_data, &xtalk_comp_rate_mcps));
+
+  // signal rate meas is peak, not avg
+  peak_signal_rate_kcps = (total_signal_rate_mcps * 1000);
+  peak_signal_rate_kcps = (peak_signal_rate_kcps + 0x8000) >> 16;
+
+  xtalk_comp_rate_kcps = xtalk_comp_rate_mcps * 1000;
+
+  if (xtalk_comp_rate_kcps > MAX_XTALK_KCPS) xtalk_comp_rate_kcps = MAX_XTALK_KCPS;
+
+  // calculate final range macro periods
+  uint32_t final_range_mpclks =
+      calc_timeout_mclks(dev->data.dev_spec_params.final_range_timeout_us,
+                         dev->data.dev_spec_params.final_range_vcsel_pulse_period);
+
+  // calculate pre range macro periods
+  uint32_t pre_range_mpclks =
+      calc_timeout_mclks(dev->data.dev_spec_params.pre_range_timeout_us,
+                         dev->data.dev_spec_params.pre_range_vcsel_pulse_period);
+
+  uint32_t vcsel_width = dev->data.dev_spec_params.final_range_vcsel_pulse_period == 8 ? 2 : 3;
+
+  uint32_t peak_vcsel_duration_us = vcsel_width * 2048 * (pre_range_mpclks + final_range_mpclks);
+
+  peak_vcsel_duration_us = (peak_vcsel_duration_us + 500) / 1000;
+  peak_vcsel_duration_us *= PLL_PERIOD_PS;
+  peak_vcsel_duration_us = (peak_vcsel_duration_us + 500) / 1000;
+
+  // fp1616 >> 8 = fp2408
+  total_signal_rate_mcps = (total_signal_rate_mcps + 0x80) >> 8;
+
+  // fp2408 * u32 = fp2408
+  vcsel_total_events_rtn = total_signal_rate_mcps * peak_vcsel_duration_us;
+
+  // fp2408 >> 8 = u32
+  vcsel_total_events_rtn = (vcsel_total_events_rtn + 0x80) >> 8;
+
+  // fp2404 << 8 = fp1616
+  total_signal_rate_mcps <<= 8;
+
+  if (peak_signal_rate_kcps == 0) {
+    *estimate           = SIGMA_EST_MAX;
+    dev->data.sigma_est = SIGMA_EST_MAX;
+    *dmax_mm            = 0;
+  } else {
+    if (vcsel_total_events_rtn < 1) vcsel_total_events_rtn = 1;
+
+    sigma_est_p1 = PULSE_EFF_WIDTH_C_NS;
+
+    // ((fp1616 << 16) * u32) / u32 = fp1616
+    sigma_est_p2 = (ambient_rate_kcps << 16) / peak_signal_rate_kcps;
+
+    // clip to prevent overflow
+    if (sigma_est_p2 > AMB_TO_SIGNAL_RATIO_MAX) {
+      sigma_est_p2 = AMB_TO_SIGNAL_RATIO_MAX;
+    }
+    sigma_est_p2 *= AMBIENT_EFF_WIDTH_C_NS;
+
+    sigma_est_p3 = 2 * vl53l0x_isqrt(vcsel_total_events_rtn * 12);
+
+    // u32 * fp1616 = fp1616
+    deltaT_ps = meas_data->range_mm * TOF_PER_MM_PS;
+
+    fp1616_t diff1_mcps = (((peak_signal_rate_kcps << 16) - xtalk_comp_rate_kcps) + 500) / 1000;
+
+    fp1616_t diff2_mcps = (((peak_signal_rate_kcps << 16) + xtalk_comp_rate_kcps) + 500) / 1000;
+
+    diff1_mcps <<= 8;
+
+    // NOTE: removed abs
+    // fp0824/fp1616 = fp2408
+    xtalk_correction = diff1_mcps / diff2_mcps;
+
+    // fp2408 << 8 = fp1616
+    xtalk_correction <<= 8;
+
+    // fp1616 / u32 = fp1616
+    pw_mult = deltaT_ps / VCSEL_PULSE_WIDTH_PS;
+
+    // fp1616 * fp1616 = fp3232
+    pw_mult *= ((1 << 16) - xtalk_correction);
+
+    // fp3232 >> 16 = fp1616
+    pw_mult = (pw_mult + ROUND_PARAM_16B) >> 16;
+
+    // fp1616 + fp1616 = fp1616
+    pw_mult += 1 << 16;
+
+    /* now the value is 1.xx, if we square it we'll exceed 32 bits. So we first
+     * shift the value right by 1 before squaring */
+    pw_mult >>= 1;
+    // fp1715* fp1715 = fp3430
+    pw_mult *= pw_mult;
+    // fp3430 >> 14 = fp1616
+    pw_mult >>= 14;
+
+    // fp1616 * u32 = fp1616
+    fp1616_t sqr1 = pw_mult * sigma_est_p1;
+
+    // fp1616 >> 16 = fp3200
+    sqr1 = (sqr1 + 0x8000) >> 16;
+
+    // u32 * u32 = u64
+    sqr1 *= sqr1;
+
+    fp1616_t sqr2 = sigma_est_p2;
+
+    // fp1616 >> 16 = u32
+    sqr2 = (sqr2 + 0x8000) >> 16;
+
+    // u32 * u32 = u64
+    sqr2 *= sqr2;
+
+    // u64 + u64 = u64 (u65)
+    fp1616_t sqr_sum = sqr1 + sqr2;
+
+    // sqrt(u64) = u32
+    fp1616_t sqrt_result_c_ns = vl53l0x_isqrt(sqr_sum);
+
+    // u32 << 16 = fp1616
+    sqrt_result_c_ns <<= 16;
+
+    sigma_est_rtn = (((sqrt_result_c_ns + 50) / 100) / sigma_est_p3);
+    sigma_est_rtn *= VL53L0X_SPEED_OF_LIGHT_IN_AIR;
+    sigma_est_rtn = (sigma_est_rtn + 5000) / 10000;
+
+    if (sigma_est_rtn > SIGMA_EST_RTN_MAX) sigma_est_rtn = SIGMA_EST_RTN_MAX;
+
+    // fp1616 * fp1616 = fp3232
+    sqr1 = sigma_est_rtn * sigma_est_rtn;
+
+    // fp1616 * fp1616 = fp3232
+    sqr2 = SIGMA_EST_REF * SIGMA_EST_REF;
+
+    // sqrt(fp3232) = fp1616
+    fp1616_t sqrt_result = vl53l0x_isqrt(sqr1 + sqr2);
+
+    sigma_est = 1000 * sqrt_result;
+
+    if (peak_signal_rate_kcps < 1 || vcsel_total_events_rtn < 1 || sigma_est > SIGMA_EST_MAX)
+      sigma_est = SIGMA_EST_MAX;
+
+    *estimate           = sigma_est;
+    dev->data.sigma_est = sigma_est;
+    ERR_CHECK(_vl53l0x_calc_dmax(dev, total_signal_rate_mcps, corr_signal_rate_mcps, pw_mult,
+                                 sigma_est_p1, sigma_est_p2, peak_vcsel_duration_us, dmax_mm));
+  }
 
   return VL53L0X_OK;
 }
