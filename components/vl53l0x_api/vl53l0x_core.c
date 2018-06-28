@@ -464,3 +464,134 @@ vl53l0x_err_t _vl53l0x_set_seq_step_timeout(vl53l0x_handle_t dev, vl53l0x_seq_st
 
   return VL53L0X_OK;
 }
+
+vl53l0x_err_t _vl53l0x_set_vcsel_pulse_period(vl53l0x_handle_t            dev,
+                                              vl53l0x_vcsel_period_type_t type, uint8_t pclks) {
+  uint8_t min_pre_vcsel_period_pclk = 12, max_pre_vcsel_period_pclk = 18;
+  uint8_t min_final_vcsel_period_pclk = 8, max_final_vcsel_period_pclk = 14;
+
+  if ((pclks % 2) != 0)  // WARN: must be even
+    return VL53L0X_ERR_INVALID_PARAMS;
+  else if (type == VL53L0X_VCSEL_PERIOD_PRE_RANGE &&
+           (pclks < min_pre_vcsel_period_pclk || pclks > max_pre_vcsel_period_pclk))
+    return VL53L0X_ERR_INVALID_PARAMS;
+  else if (type == VL53L0X_VCSEL_PERIOD_FINAL_RANGE &&
+           (pclks < min_final_vcsel_period_pclk || pclks > max_final_vcsel_period_pclk))
+    return VL53L0X_ERR_INVALID_PARAMS;
+
+  if (type == VL53L0X_VCSEL_PERIOD_PRE_RANGE) {
+    switch (pclks) {
+      case 12:
+        ERR_CHECK(vl53l0x_write_8(dev, PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x18));
+        ERR_CHECK(vl53l0x_write_8(dev, PRE_RANGE_CONFIG_VALID_PHASE_LOW, 0x08));
+        break;
+      case 14:
+        ERR_CHECK(vl53l0x_write_8(dev, PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x30));
+        ERR_CHECK(vl53l0x_write_8(dev, PRE_RANGE_CONFIG_VALID_PHASE_LOW, 0x08));
+        break;
+      case 16:
+        ERR_CHECK(vl53l0x_write_8(dev, PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x40));
+        ERR_CHECK(vl53l0x_write_8(dev, PRE_RANGE_CONFIG_VALID_PHASE_LOW, 0x08));
+        break;
+      case 18:
+        ERR_CHECK(vl53l0x_write_8(dev, PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x50));
+        ERR_CHECK(vl53l0x_write_8(dev, PRE_RANGE_CONFIG_VALID_PHASE_LOW, 0x08));
+        break;
+      default:
+        return VL53L0X_ERR_INVALID_PARAMS;
+    }
+  } else if (type == VL53L0X_VCSEL_PERIOD_FINAL_RANGE) {
+    switch (pclks) {
+      case 8:
+        ERR_CHECK(vl53l0x_write_8(dev, FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x10));
+        ERR_CHECK(vl53l0x_write_8(dev, FINAL_RANGE_CONFIG_VALID_PHASE_LOW, 0x08));
+
+        ERR_CHECK(vl53l0x_write_8(dev, GLOBAL_CONFIG_VCSEL_WIDTH, 0x02));
+        ERR_CHECK(vl53l0x_write_8(dev, ALGO_PHASECAL_CONFIG_TIMEOUT, 0x0c));
+
+        ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
+        ERR_CHECK(vl53l0x_write_8(dev, ALGO_PHASECAL_LIM, 0x30));
+        ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+        break;
+      case 10:
+        ERR_CHECK(vl53l0x_write_8(dev, FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x28));
+        ERR_CHECK(vl53l0x_write_8(dev, FINAL_RANGE_CONFIG_VALID_PHASE_LOW, 0x08));
+
+        ERR_CHECK(vl53l0x_write_8(dev, GLOBAL_CONFIG_VCSEL_WIDTH, 0x03));
+        ERR_CHECK(vl53l0x_write_8(dev, ALGO_PHASECAL_CONFIG_TIMEOUT, 0x09));
+
+        ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
+        ERR_CHECK(vl53l0x_write_8(dev, ALGO_PHASECAL_LIM, 0x20));
+        ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+        break;
+      case 12:
+        ERR_CHECK(vl53l0x_write_8(dev, FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x38));
+        ERR_CHECK(vl53l0x_write_8(dev, FINAL_RANGE_CONFIG_VALID_PHASE_LOW, 0x08));
+
+        ERR_CHECK(vl53l0x_write_8(dev, GLOBAL_CONFIG_VCSEL_WIDTH, 0x03));
+        ERR_CHECK(vl53l0x_write_8(dev, ALGO_PHASECAL_CONFIG_TIMEOUT, 0x08));
+
+        ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
+        ERR_CHECK(vl53l0x_write_8(dev, ALGO_PHASECAL_LIM, 0x20));
+        ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+        break;
+      case 14:
+        ERR_CHECK(vl53l0x_write_8(dev, FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x48));
+        ERR_CHECK(vl53l0x_write_8(dev, FINAL_RANGE_CONFIG_VALID_PHASE_LOW, 0x08));
+
+        ERR_CHECK(vl53l0x_write_8(dev, GLOBAL_CONFIG_VCSEL_WIDTH, 0x03));
+        ERR_CHECK(vl53l0x_write_8(dev, ALGO_PHASECAL_CONFIG_TIMEOUT, 0x07));
+
+        ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x01));
+        ERR_CHECK(vl53l0x_write_8(dev, ALGO_PHASECAL_LIM, 0x20));
+        ERR_CHECK(vl53l0x_write_8(dev, 0xff, 0x00));
+        break;
+    }
+  }
+
+  // re-calculate and apply timeouts in macro periods
+  uint8_t  encoded_vcsel_period = vl53l0x_encode_vcsel_period(pclks);
+  uint32_t pre_range_timeout_us, final_range_timeout_us, msrc_timeout_us;
+  switch (type) {
+    case VL53L0X_VCSEL_PERIOD_PRE_RANGE:
+      // get current timeouts
+      ERR_CHECK(
+          _vl53l0x_get_seq_step_timeout(dev, VL53L0X_SEQSTEP_PRE_RANGE, &pre_range_timeout_us));
+      ERR_CHECK(_vl53l0x_get_seq_step_timeout(dev, VL53L0X_SEQSTEP_MSRC, &msrc_timeout_us));
+
+      ERR_CHECK(vl53l0x_write_8(dev, PRE_RANGE_CONFIG_VCSEL_PERIOD, encoded_vcsel_period));
+
+      // re-calculate
+      ERR_CHECK(
+          _vl53l0x_set_seq_step_timeout(dev, VL53L0X_SEQSTEP_PRE_RANGE, pre_range_timeout_us));
+      ERR_CHECK(_vl53l0x_set_seq_step_timeout(dev, VL53L0X_SEQSTEP_MSRC, msrc_timeout_us));
+
+      dev->data.dev_spec_params.pre_range_vcsel_pulse_period = pclks;
+      break;
+    case VL53L0X_VCSEL_PERIOD_FINAL_RANGE:
+      // get current timeout
+      ERR_CHECK(
+          _vl53l0x_get_seq_step_timeout(dev, VL53L0X_SEQSTEP_FINAL_RANGE, &final_range_timeout_us));
+
+      ERR_CHECK(vl53l0x_write_8(dev, FINAL_RANGE_CONFIG_VCSEL_PERIOD, encoded_vcsel_period));
+
+      // re-calculate
+      ERR_CHECK(
+          _vl53l0x_set_seq_step_timeout(dev, VL53L0X_SEQSTEP_FINAL_RANGE, final_range_timeout_us));
+
+      dev->data.dev_spec_params.final_range_vcsel_pulse_period = pclks;
+      break;
+    default:
+      return VL53L0X_ERR_INVALID_PARAMS;
+  }
+
+  // re-apply timing budget
+  ERR_CHECK(vl53l0x_set_meas_timing_budget_us(dev, dev->data.current_params.meas_timing_budget_us));
+
+  /* perform new phase calibration
+   * get_data = false, restore_config = true */
+  uint8_t phase_cal = 0;
+  ERR_CHECK(_vl53l0x_perform_phase_calibration(dev, &phase_cal, false, true));
+
+  return VL53L0X_OK;
+}
