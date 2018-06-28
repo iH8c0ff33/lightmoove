@@ -36,7 +36,7 @@ vl53l0x_err_t vl53l0x_load_tuning_settings(vl53l0x_handle_t dev, const uint8_t* 
 vl53l0x_err_t vl53l0x_calc_sigma_estimate(vl53l0x_handle_t             dev,
                                           vl53l0x_ranging_meas_data_t* meas_data,
                                           fp1616_t* estimate, uint32_t* dmax_mm);
-vl53l0x_err_t vl53l0x_get_total_xtalk_rate(vl53l0x_handle_t             dev,
+vl53l0x_err_t _vl53l0x_get_total_xtalk_rate(vl53l0x_handle_t             dev,
                                            vl53l0x_ranging_meas_data_t* meas_data,
                                            fp1616_t*                    rate_mcps);
 vl53l0x_err_t _vl53l0x_get_total_signal_rate(vl53l0x_handle_t             dev,
