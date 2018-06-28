@@ -3,6 +3,7 @@
 
 #include "esp_system.h"
 #include "vl53l0x_def.h"
+#include "string.h"
 
 typedef struct {
   vl53l0x_dev_data_t data;
